@@ -1,5 +1,8 @@
 import type { LayerSpecification, StyleSpecification } from 'maplibre-gl'
+import { ARROW_ICON, FINISH_ICON } from './routeSymbols'
 
+export const ROUTE_LINE_LAYER = 'galitrack-route-line'
+export const ROUTE_FINISH_LAYER = 'galitrack-route-finish'
 export const DETAILED_STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty'
 
 const regionalStyle: StyleSpecification = {
@@ -73,11 +76,36 @@ const routeLayers: LayerSpecification[] = [
     paint: { 'line-color': '#fff', 'line-width': ['case', ['==', ['get', 'priority'], 1], 8, 6] },
   },
   {
-    id: 'galitrack-route-line', type: 'line', source: 'galitrack-routes',
+    id: ROUTE_LINE_LAYER, type: 'line', source: 'galitrack-routes',
     layout: { 'line-join': 'round', 'line-cap': 'round', 'line-sort-key': ['get', 'priority'] },
     paint: {
       'line-color': ['get', 'color'],
       'line-width': ['case', ['==', ['get', 'priority'], 1], 5, 3.5],
+    },
+  },
+  {
+    id: 'galitrack-route-direction', type: 'symbol', source: 'galitrack-routes',
+    filter: ['==', ['geometry-type'], 'LineString'],
+    layout: {
+      'symbol-placement': 'line',
+      'symbol-spacing': 74,
+      'icon-image': ARROW_ICON,
+      'icon-rotation-alignment': 'map',
+      'icon-keep-upright': false,
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true,
+    },
+  },
+  {
+    id: ROUTE_FINISH_LAYER, type: 'symbol', source: 'galitrack-routes',
+    filter: ['==', ['geometry-type'], 'Point'],
+    layout: {
+      'icon-image': FINISH_ICON,
+      'icon-anchor': 'bottom',
+      'icon-offset': [0, -8],
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true,
+      'symbol-sort-key': ['get', 'priority'],
     },
   },
 ]

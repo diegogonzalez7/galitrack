@@ -144,6 +144,15 @@ export interface components {
             /** Routes */
             routes: components["schemas"]["DemoRoute"][];
         };
+        /** RouteInstruction */
+        RouteInstruction: {
+            /** Text */
+            text: string;
+            /** Distance M */
+            distance_m: number;
+            /** Start Index */
+            start_index: number;
+        };
         /** RoutedCircuit */
         RoutedCircuit: {
             /** Id */
@@ -160,6 +169,8 @@ export interface components {
             /** Elevation Profile */
             elevation_profile: components["schemas"]["ElevationSample"][];
             surface: components["schemas"]["SurfaceCoverage"];
+            /** Instructions */
+            instructions?: components["schemas"]["RouteInstruction"][];
         };
         /** RoutesResponse */
         RoutesResponse: {

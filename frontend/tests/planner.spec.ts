@@ -42,6 +42,11 @@ function answer(preferences: Preferences): RoutesResponse {
       { distance_km, elevation_m: 25 },
     ],
     surface: { paved_pct: 60, unpaved_pct: 30, unknown_pct: 10 },
+    instructions: [
+      { text: 'Comienza por el paseo del Lérez', distance_m: 300, start_index: 0 },
+      { text: 'Gira a la izquierda hacia el puente', distance_m: 450, start_index: 1 },
+      { text: 'Has llegado a la meta', distance_m: 0, start_index: 4 },
+    ],
   }
   return {
     source: 'openrouteservice',
@@ -53,7 +58,7 @@ function answer(preferences: Preferences): RoutesResponse {
   }
 }
 
-test('carga el estilo detallado y cambia entre circuitos y perfiles', async ({ page }, testInfo) => {
+test('abre, reproduce y recupera el detalle de una ruta', async ({ page }, testInfo) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.route(styleUrl, (route) => route.fulfill({ json: detailedStyle }))
@@ -70,18 +75,41 @@ test('carga el estilo detallado y cambia entre circuitos y perfiles', async ({ p
   expect((await canvas.boundingBox())?.height).toBeGreaterThanOrEqual(320)
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(testInfo.project.use.viewport?.width)
 
-  await expect(page.getByRole('button', { name: /Circuito [12]/ })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: /Circuito [12]/ })).toHaveCount(0)
   const request = page.waitForRequest((request) => request.url().endsWith('/api/routes') && request.method() === 'POST')
   await page.getByRole('button', { name: 'Generar rutas' }).click()
   expect((await request).postDataJSON().origin).toEqual({ latitude: 42.4337, longitude: -8.6361 })
-  const first = page.getByRole('button', { name: /Circuito 1/ })
-  const second = page.getByRole('button', { name: /Circuito 2/ })
-  await expect(first).toHaveAttribute('aria-pressed', 'true')
-  await expect(first).toContainText('10 % sin clasificar')
-  await expect(page.getByRole('img', { name: 'Perfil de elevación de Circuito 1' })).toBeVisible()
-  await second.click()
-  await expect(second).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('link', { name: /Circuito 1/ })).toContainText('10 % sin clasificar')
+  await expect(page.getByRole('img', { name: /Perfil de elevación/ })).toHaveCount(0)
+  await page.getByRole('link', { name: /Circuito 2/ }).click()
+  await expect(page).toHaveURL(/#\/rutas\/[^/]+\/ors-2$/)
+  await expect(page.getByRole('heading', { name: 'Circuito 2' })).toBeFocused()
   await expect(page.getByRole('img', { name: 'Perfil de elevación de Circuito 2' })).toBeVisible()
+
+  const slider = page.getByRole('slider', { name: 'Progreso del recorrido' })
+  await expect(slider).toHaveValue('0')
+  await page.getByRole('button', { name: 'Reproducir', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Pausar' })).toBeVisible()
+  await expect.poll(async () => Number(await slider.inputValue())).toBeGreaterThan(0)
+  await page.getByRole('button', { name: 'Pausar' }).click()
+
+  const movingPoint = page.locator('.map-runner')
+  await expect(page.getByRole('button', { name: 'Ver todo el recorrido' })).toBeEnabled()
+  const markerPosition = await movingPoint.getAttribute('style')
+  await slider.fill('5000')
+  await expect(page.getByText('63 m', { exact: true })).toBeVisible()
+  await expect(movingPoint).not.toHaveAttribute('style', markerPosition ?? '')
+  const turn = page.getByRole('button', { name: /Gira a la izquierda/ })
+  await expect(turn).toHaveAttribute('aria-current', 'step')
+  await page.getByRole('button', { name: /Has llegado a la meta/ }).click()
+  await expect(slider).toHaveValue('10000')
+  await page.getByRole('button', { name: 'Volver al inicio del recorrido' }).click()
+  await expect(slider).toHaveValue('0')
+
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Circuito 2' })).toBeVisible()
+  await page.getByRole('link', { name: 'Volver al planificador' }).click()
+  await expect(page.getByRole('link', { name: /Circuito 2/ })).toBeVisible()
   expect(errors).toEqual([])
 })
 
@@ -92,12 +120,12 @@ test('el respaldo regional conserva la selección del mapa y limpia las rutas al
   await expect(page.getByText('Mapa regional de respaldo · Calles y caminos no disponibles')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Acercar mapa' })).toBeEnabled()
   await page.getByRole('button', { name: 'Generar rutas' }).click()
-  await expect(page.getByRole('button', { name: /Circuito 1/ })).toBeVisible()
+  await expect(page.getByRole('link', { name: /Circuito 1/ })).toBeVisible()
   const origin = page.getByTestId('origin')
   const original = await origin.textContent()
-  await page.getByTestId('map-canvas').locator('canvas').click({ position: { x: 90, y: 190 } })
+  await page.getByTestId('map-canvas').locator('canvas').click({ position: { x: 20, y: 145 } })
   await expect(origin).not.toHaveText(original ?? '')
-  await expect(page.getByRole('button', { name: /Circuito 1/ })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: /Circuito 1/ })).toHaveCount(0)
 
   await page.getByRole('slider', { name: 'Distancia objetivo' }).fill('12')
   await page.getByText('Exigente', { exact: true }).click()
@@ -108,7 +136,7 @@ test('el respaldo regional conserva la selección del mapa y limpia las rutas al
   expect((await request).postDataJSON()).toMatchObject({
     distance_km: 12, surface: 'trail', elevation: 'hilly', pace_seconds_per_km: 360,
   })
-  await expect(page.getByRole('button', { name: /Circuito 1/ })).toContainText('1 h 12 min')
+  await expect(page.getByRole('link', { name: /Circuito 1/ })).toContainText('1 h 12 min')
 })
 
 test('un error de configuración o un origen sin circuito no dibujan rutas sintéticas', async ({ page }) => {
@@ -120,7 +148,7 @@ test('un error de configuración o un origen sin circuito no dibujan rutas sint�
   await page.goto('/')
   await page.getByRole('button', { name: 'Generar rutas' }).click()
   await expect(page.getByRole('alert')).toContainText('Configura ORS_API_KEY')
-  await expect(page.getByRole('button', { name: /Circuito 1/ })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: /Circuito 1/ })).toHaveCount(0)
   configured = true
 
   await page.locator('summary').filter({ hasText: 'Punto de partida' }).press('Enter')
@@ -137,6 +165,37 @@ test('un error de configuración o un origen sin circuito no dibujan rutas sint�
   await page.getByRole('button', { name: 'Generar rutas' }).press('Enter')
   expect((await request).postDataJSON().origin).toEqual({ latitude: 42.4331, longitude: -8.6441 })
   await expect(page.getByText(/No encontramos un circuito/)).toBeVisible()
-  await expect(page.getByRole('button', { name: /Circuito 1/ })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: /Circuito 1/ })).toHaveCount(0)
   await expect(page.getByRole('alert')).toHaveCount(0)
+})
+
+
+test('abre una ruta al pulsar su trazado en el mapa', async ({ page }) => {
+  await page.route(styleUrl, (route) => route.fulfill({ json: detailedStyle }))
+  await page.route('**/api/routes', (route) => route.fulfill({ json: answer(route.request().postDataJSON()) }))
+  await page.goto('/')
+  await expect(page.getByRole('button', { name: 'Acercar mapa' })).toBeEnabled()
+  await page.getByRole('button', { name: 'Generar rutas' }).click()
+  await expect(page.getByRole('link', { name: /Circuito 1/ })).toBeVisible()
+
+  const canvas = page.getByTestId('map-canvas').locator('canvas')
+  await canvas.scrollIntoViewIfNeeded()
+  const marker = page.locator('.map-pin')
+  const pointOnRoute = async () => {
+    const box = await marker.boundingBox()
+    if (!box) throw new Error('No se encontró el marcador de inicio')
+    return { x: box.x + box.width / 2 + 30, y: box.y + box.height / 2 }
+  }
+  // Both fixture loops start at the marker. The eastbound line belongs to circuit 1.
+  await expect.poll(async () => {
+    const { x, y } = await pointOnRoute()
+    await page.mouse.move(x, y)
+    return canvas.evaluate((element) => getComputedStyle(element).cursor)
+  }).toBe('pointer')
+
+  const { x, y } = await pointOnRoute()
+  await page.mouse.click(x, y)
+  await expect(page.getByRole('heading', { name: 'Circuito 1' })).toBeVisible()
+  await page.goBack()
+  await expect(page.getByRole('link', { name: /Circuito 2/ })).toBeVisible()
 })

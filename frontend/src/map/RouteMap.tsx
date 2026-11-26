@@ -1,11 +1,12 @@
 import 'maplibre-gl/dist/maplibre-gl.css'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import { Crosshair, Maximize2, Minus, Plus } from 'lucide-react'
-import { AttributionControl, LngLatBounds, Map, Marker, ScaleControl, setWorkerUrl, type GeoJSONSource } from 'maplibre-gl'
-import { useEffect, useRef, useState } from 'react'
-import { DEFAULTS, GALICIA_BOUNDS, withinGalicia, type Origin, type Route } from '../planner/model'
+import { AttributionControl, LngLatBounds, Map, Marker, ScaleControl, type Point, setWorkerUrl, type GeoJSONSource } from 'maplibre-gl'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
+import { GALICIA_BOUNDS, withinGalicia, type Origin, type Route } from '../planner/model'
 import { routeColor } from '../planner/routeColor'
-import { DETAILED_STYLE_URL, regionalMapStyle, withRoutes } from './style'
+import { addRouteSymbols } from './routeSymbols'
+import { DETAILED_STYLE_URL, regionalMapStyle, ROUTE_FINISH_LAYER, ROUTE_LINE_LAYER, withRoutes } from './style'
 
 // Let Vite resolve and serve the MapLibre module worker in both dev and build.
 setWorkerUrl(workerUrl)
@@ -29,16 +30,21 @@ function routeBounds(routes: Route[], origin: Origin) {
 
 interface Props {
   origin: Origin
-  onOriginChange: (origin: Origin) => void
+  onOriginChange?: (origin: Origin) => void
+  onRouteOpen?: (id: string) => void
   routes: Route[]
   selectedId: string | undefined
-  focusOrigin: Origin | null
+  focusOrigin?: Origin | null
+  playbackPosition?: [number, number]
 }
 
-export default function RouteMap({ origin, onOriginChange, routes, selectedId, focusOrigin }: Props) {
+export default function RouteMap({ origin, onOriginChange, onRouteOpen, routes, selectedId, focusOrigin, playbackPosition }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const mapRef = useRef<Map | null>(null)
   const markerRef = useRef<Marker | null>(null)
+  const initialOrigin = useRef(origin)
+  const canOpenRoute = Boolean(onRouteOpen)
+  const openRoute = useEffectEvent((id: string) => onRouteOpen?.(id))
   const [ready, setReady] = useState(false)
   const [status, setStatus] = useState('')
   const [styleVersion, setStyleVersion] = useState(0)
@@ -50,7 +56,7 @@ export default function RouteMap({ origin, onOriginChange, routes, selectedId, f
     try {
       map = new Map({
         container: container.current,
-        center: position(DEFAULTS.origin),
+        center: position(initialOrigin.current),
         zoom: 15,
         minZoom: 5.5,
         maxZoom: 19,
@@ -63,7 +69,9 @@ export default function RouteMap({ origin, onOriginChange, routes, selectedId, f
         doubleClickZoom: false,
       })
     } catch {
-      setStatus('Mapa no disponible. Puedes indicar el origen por coordenadas.')
+      setStatus(onOriginChange
+        ? 'Mapa no disponible. Puedes indicar el origen por coordenadas.'
+        : 'Mapa no disponible. Puedes consultar el perfil y las indicaciones.')
       return
     }
     mapRef.current = map
@@ -71,11 +79,13 @@ export default function RouteMap({ origin, onOriginChange, routes, selectedId, f
     map.addControl(new AttributionControl({ compact: false }), 'bottom-right')
     map.addControl(new ScaleControl({ unit: 'metric', maxWidth: 85 }), 'bottom-left')
     const canvas = map.getCanvas()
-    canvas.setAttribute('aria-label', 'Mapa de Galicia. Usa las flechas para desplazarte y los campos de coordenadas para elegir el origen con el teclado.')
+    canvas.setAttribute('aria-label', onOriginChange
+      ? 'Mapa de Galicia. Usa las flechas para desplazarte y los campos de coordenadas para elegir el origen con el teclado.'
+      : 'Mapa del circuito. Usa las flechas para desplazarte y el control de progreso para explorar el recorrido.')
     const pin = document.createElement('div')
-    pin.className = 'map-pin'
+    pin.className = onOriginChange ? 'map-pin' : 'map-runner'
     pin.setAttribute('aria-hidden', 'true')
-    const marker = new Marker({ element: pin }).setLngLat(position(DEFAULTS.origin)).addTo(map)
+    const marker = new Marker({ element: pin }).setLngLat(position(initialOrigin.current)).addTo(map)
     markerRef.current = marker
     let disposed = false
     let regional = false
@@ -95,7 +105,10 @@ export default function RouteMap({ origin, onOriginChange, routes, selectedId, f
       })
     }
 
-    map.on('style.load', () => setStyleVersion((version) => version + 1))
+    map.on('style.load', () => {
+      addRouteSymbols(map)
+      setStyleVersion((version) => version + 1)
+    })
     map.on('idle', () => {
       setReady(true)
       if (!regional && !detailedLoaded) {
@@ -106,13 +119,33 @@ export default function RouteMap({ origin, onOriginChange, routes, selectedId, f
     })
     map.on('error', () => {
       if (!regional) useRegionalMap()
-      else setStatus('No se pudo cargar la cartografía de respaldo. Puedes usar las coordenadas.')
+      else setStatus('No se pudo cargar la cartografía de respaldo.')
     })
     map.setStyle(DETAILED_STYLE_URL, {
       diff: false,
       transformStyle: (_previous, next) => withRoutes(next),
     })
-    map.on('click', ({ lngLat }) => {
+    function routeAt(point: Point): string | undefined {
+      const layers = [ROUTE_FINISH_LAYER, ROUTE_LINE_LAYER].filter((id) => map.getLayer(id))
+      if (!layers.length) return
+      return map.queryRenderedFeatures([[point.x - 6, point.y - 6], [point.x + 6, point.y + 6]], { layers })
+        .find((feature) => typeof feature.properties.routeId === 'string')?.properties.routeId
+    }
+
+    if (canOpenRoute) {
+      const layers = [ROUTE_FINISH_LAYER, ROUTE_LINE_LAYER]
+      map.on('mouseenter', layers, () => { canvas.style.cursor = 'pointer' })
+      map.on('mouseleave', layers, () => { canvas.style.cursor = '' })
+    }
+    map.on('click', ({ lngLat, point }) => {
+      if (canOpenRoute) {
+        const routeId = routeAt(point)
+        if (routeId) {
+          openRoute(routeId)
+          return
+        }
+      }
+      if (!onOriginChange) return
       const next = { longitude: Number(lngLat.lng.toFixed(5)), latitude: Number(lngLat.lat.toFixed(5)) }
       if (!withinGalicia(next)) {
         setStatus('Elige un punto dentro de Galicia y su entorno.')
@@ -129,21 +162,24 @@ export default function RouteMap({ origin, onOriginChange, routes, selectedId, f
       markerRef.current = null
       mapRef.current = null
     }
-  }, [onOriginChange])
+  }, [onOriginChange, canOpenRoute])
 
   useEffect(() => {
-    markerRef.current?.setLngLat(position(origin))
-  }, [origin])
+    markerRef.current?.setLngLat(playbackPosition ?? position(origin))
+  }, [origin, playbackPosition])
 
   useEffect(() => {
     const source = mapRef.current?.getSource<GeoJSONSource>('galitrack-routes')
     source?.setData({
       type: 'FeatureCollection',
-      features: routes.map((route) => ({
-        type: 'Feature',
-        geometry: route.geometry,
-        properties: { color: routeColor(route.id), priority: Number(route.id === selectedId) },
-      })),
+      features: routes.flatMap((route) => {
+        const properties = { routeId: route.id, color: routeColor(route.id), priority: Number(route.id === selectedId) }
+        const finish = route.geometry.coordinates[route.geometry.coordinates.length - 1]
+        return [
+          { type: 'Feature', geometry: route.geometry, properties },
+          { type: 'Feature', geometry: { type: 'Point', coordinates: finish }, properties },
+        ]
+      }),
     })
   }, [styleVersion, routes, selectedId])
 
@@ -160,6 +196,10 @@ export default function RouteMap({ origin, onOriginChange, routes, selectedId, f
     }
   }, [ready, focusOrigin, basemap])
 
+  function showRoute() {
+    mapRef.current?.fitBounds(routeBounds(routes, origin), { padding: 60, maxZoom: 16, duration: 400 })
+  }
+
   function showOrigin() {
     const map = mapRef.current
     if (!map) return
@@ -168,16 +208,28 @@ export default function RouteMap({ origin, onOriginChange, routes, selectedId, f
   }
 
   return (
-    <section className="map-panel" aria-label="Mapa de planificación" data-basemap={basemap}>
+    <section className="map-panel" aria-label={onOriginChange ? 'Mapa de planificación' : 'Mapa del recorrido'}
+      data-basemap={basemap}>
       <div className="map-canvas" ref={container} data-testid="map-canvas" />
-      <div className="map-instruction"><span className="map-instruction-dot" /> Haz clic en el mapa para elegir el origen</div>
+      {onOriginChange && (
+        <div className="map-instruction">
+          <span className="map-instruction-dot" />
+          {routes.length ? 'Pulsa un trazado para abrir su recorrido' : 'Haz clic en el mapa para elegir el origen'}
+        </div>
+      )}
       <div className="map-tools">
         <div className="map-zoom">
           <button type="button" aria-label="Acercar mapa" title="Acercar" disabled={!ready} onClick={() => mapRef.current?.zoomIn()}><Plus size={18} /></button>
           <button type="button" aria-label="Alejar mapa" title="Alejar" disabled={!ready} onClick={() => mapRef.current?.zoomOut()}><Minus size={18} /></button>
         </div>
-        <button type="button" aria-label="Centrar en el origen" title="Centrar en el origen" disabled={!ready} onClick={showOrigin}><Crosshair size={18} /></button>
-        <button type="button" aria-label="Ver toda Galicia" title="Ver toda Galicia" disabled={!ready} onClick={() => mapRef.current?.fitBounds(regionBounds, { padding: 32, duration: 360 })}><Maximize2 size={16} /></button>
+        {onOriginChange ? (
+          <>
+            <button type="button" aria-label="Centrar en el origen" title="Centrar en el origen" disabled={!ready} onClick={showOrigin}><Crosshair size={18} /></button>
+            <button type="button" aria-label="Ver toda Galicia" title="Ver toda Galicia" disabled={!ready} onClick={() => mapRef.current?.fitBounds(regionBounds, { padding: 32, duration: 360 })}><Maximize2 size={16} /></button>
+          </>
+        ) : (
+          <button type="button" aria-label="Ver todo el recorrido" title="Ver todo el recorrido" disabled={!ready} onClick={showRoute}><Maximize2 size={16} /></button>
+        )}
       </div>
       {(status || basemap === 'regional') && (
         <p className="map-status" role="status">{status || 'Mapa regional de respaldo · Calles y caminos no disponibles'}</p>

@@ -4,20 +4,40 @@ import { generateRoutes } from './planner/api'
 import { DEFAULTS, type Origin, type Preferences, type Route } from './planner/model'
 import { PlannerForm } from './planner/PlannerForm'
 import { Results } from './planner/Results'
+import { rememberPlan, restorePlan, routeLink } from './planner/plan'
+import { RouteDetail } from './planner/RouteDetail'
 
 const RouteMap = lazy(() => import('./map/RouteMap'))
 const NO_ROUTES: Route[] = []
 
 export function App() {
-  const [preferences, setPreferences] = useState(DEFAULTS)
-  const [result, setResult] = useState<{ preferences: Preferences; routes: Route[] } | null>(null)
-  const [selectedId, setSelectedId] = useState<string>()
+  const [result, setResult] = useState(restorePlan)
+  const [preferences, setPreferences] = useState(result?.preferences ?? DEFAULTS)
+  const [hash, setHash] = useState(() => window.location.hash)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [focusOrigin, setFocusOrigin] = useState<Origin | null>(null)
   const activeRequest = useRef<AbortController | null>(null)
 
   useEffect(() => () => activeRequest.current?.abort(), [])
+  useEffect(() => rememberPlan(result), [result])
+
+  useEffect(() => {
+    function onNavigation() { setHash(window.location.hash) }
+    window.addEventListener('hashchange', onNavigation)
+    return () => window.removeEventListener('hashchange', onNavigation)
+  }, [])
+
+  useEffect(() => {
+    if (!hash) return
+    window.scrollTo(0, 0)
+    document.querySelector<HTMLElement>('main h1')?.focus({ preventScroll: true })
+  }, [hash])
+
+  const planId = result?.id ?? ''
+  const onRouteOpen = useCallback((id: string) => {
+    if (planId) window.location.hash = routeLink(planId, id)
+  }, [planId])
 
   const onOriginChange = useCallback((origin: Origin) => {
     activeRequest.current?.abort()
@@ -43,8 +63,8 @@ export function App() {
     try {
       const response = await generateRoutes(next, controller.signal)
       if (controller.signal.aborted) return
-      setResult({ preferences: next, routes: response.routes })
-      setSelectedId(response.routes[0]?.id)
+      const id = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
+      setResult({ id, preferences: next, routes: response.routes })
     } catch (failure) {
       if (!controller.signal.aborted) {
         setError(failure instanceof Error && !(failure instanceof TypeError)
@@ -63,7 +83,8 @@ export function App() {
     || preferences.pace_seconds_per_km !== submitted.pace_seconds_per_km
   )
   const routes = result?.routes ?? NO_ROUTES
-  const selected = routes.find((route) => route.id === selectedId)
+  const detailOpen = hash.startsWith('#/rutas/')
+  const selected = detailOpen ? routes.find((route) => routeLink(planId, route.id) === hash) : undefined
 
   return (
     <>
@@ -74,21 +95,27 @@ export function App() {
         </div>
       </header>
       <main className="shell workspace">
-        <div className="hero">
-          <p className="eyebrow">PLANIFICADOR DE RUNNING</p>
-          <h1>Tu próxima ruta empieza aquí.</h1>
-          <p>Elige dónde empezar y encuentra circuitos por calles y caminos de Galicia.</p>
-        </div>
-        <div className="planner-grid">
-          <PlannerForm preferences={preferences} onChange={setPreferences} onOriginChange={onCoordinatesChange}
-            onSubmit={submit} loading={loading} />
-          <Suspense fallback={<div className="map-panel map-placeholder" role="status">Cargando mapa…</div>}>
-            <RouteMap origin={preferences.origin} onOriginChange={onOriginChange} routes={routes}
-              selectedId={selectedId} focusOrigin={focusOrigin} />
-          </Suspense>
-        </div>
-        <Results routes={routes} selected={selected} onSelect={setSelectedId} loading={loading}
-          completed={result !== null} stale={stale} error={error} />
+        {detailOpen ? (
+          selected
+            ? <RouteDetail key={hash} route={selected} />
+            : <div className="hero"><h1 tabIndex={-1}>Recorrido no disponible</h1><a className="planner-back" href="#/">Volver al planificador</a></div>
+        ) : <>
+          <div className="hero">
+            <p className="eyebrow">PLANIFICADOR DE RUNNING</p>
+            <h1 tabIndex={-1}>Tu próxima ruta empieza aquí.</h1>
+            <p>Elige dónde empezar y encuentra circuitos por calles y caminos de Galicia.</p>
+          </div>
+          <div className="planner-grid">
+            <PlannerForm preferences={preferences} onChange={setPreferences} onOriginChange={onCoordinatesChange}
+              onSubmit={submit} loading={loading} />
+            <Suspense fallback={<div className="map-panel map-placeholder" role="status">Cargando mapa…</div>}>
+              <RouteMap origin={preferences.origin} onOriginChange={onOriginChange} routes={routes}
+                selectedId={routes[0]?.id} focusOrigin={focusOrigin} onRouteOpen={onRouteOpen} />
+            </Suspense>
+          </div>
+          <Results routes={routes} planId={planId} loading={loading}
+            completed={result !== null} stale={stale} error={error} />
+        </>}
       </main>
     </>
   )
