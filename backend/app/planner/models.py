@@ -69,6 +69,12 @@ class SurfaceCoverage(BaseModel):
     unknown_pct: int = Field(ge=0, le=100)
 
 
+class RouteInstruction(BaseModel):
+    text: str
+    distance_m: float = Field(ge=0)
+    start_index: int = Field(ge=0)
+
+
 class RoutedCircuit(BaseModel):
     id: str
     name: str
@@ -78,6 +84,7 @@ class RoutedCircuit(BaseModel):
     geometry: LineString
     elevation_profile: list[ElevationSample]
     surface: SurfaceCoverage
+    instructions: list[RouteInstruction] = Field(default_factory=list)
 
 
 class RoutesResponse(BaseModel):

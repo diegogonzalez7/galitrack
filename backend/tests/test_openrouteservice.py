@@ -55,6 +55,11 @@ def ors_response(points, *, distance=10000, elevation=True, paved=8000):
             },
             "properties": {
                 "summary": {"distance": distance, "ascent": 140 if elevation else None},
+                "segments": [{"steps": [
+                    {"instruction": "Sigue recto por el paseo", "distance": 300, "way_points": [0, 1]},
+                    {"instruction": "Gira a la izquierda", "distance": 450, "way_points": [1, 2]},
+                    {"instruction": "Fuera de la geometría", "distance": 10, "way_points": [len(points), len(points)]},
+                ]}],
                 "extras": {"surface": {"summary": [{"value": 3, "distance": paved}, {"value": 11, "distance": 1200}]}},
             },
         }],
@@ -70,6 +75,9 @@ async def test_generated_circuits_follow_provider_geometry_and_exclude_ferries(c
         requests.append(payload)
         assert request.url == httpx.URL("https://api.heigit.org/openrouteservice/v2/directions/foot-walking/geojson")
         assert payload["coordinates"] == [ORIGIN]
+        assert payload["instructions"] is True
+        assert payload["instructions_format"] == "text"
+        assert payload["language"] == "es"
         assert payload["options"]["avoid_features"] == ["ferries"]
         assert payload["options"]["round_trip"]["length"] == 10000
         assert payload["radiuses"] == [120]
@@ -86,6 +94,10 @@ async def test_generated_circuits_follow_provider_geometry_and_exclude_ferries(c
     assert second["geometry"]["coordinates"] == NORTH
     assert first["estimated_seconds"] == 3600
     assert first["ascent_m"] == 140
+    assert first["instructions"] == [
+        {"text": "Sigue recto por el paseo", "distance_m": 300, "start_index": 0},
+        {"text": "Gira a la izquierda", "distance_m": 450, "start_index": 1},
+    ]
     assert first["surface"] == {"paved_pct": 80, "unpaved_pct": 12, "unknown_pct": 8}
     distances = [point["distance_km"] for point in first["elevation_profile"]]
     assert distances == sorted(distances)

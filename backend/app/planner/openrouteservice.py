@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, FiniteFloat
 
 from .models import (
     ElevationPreference, ElevationSample, Latitude, LineString, Longitude,
-    Origin, Position, PreviewRequest, RoutedCircuit, Surface, SurfaceCoverage,
+    Origin, Position, PreviewRequest, RouteInstruction, RoutedCircuit, Surface, SurfaceCoverage,
 )
 
 logger = getLogger(__name__)
@@ -61,10 +61,21 @@ class ORSExtras(BaseModel):
     surface: ORSSurface | None = None
 
 
+class ORSStep(BaseModel):
+    instruction: str
+    distance: FiniteFloat
+    way_points: tuple[int, int]
+
+
+class ORSSegment(BaseModel):
+    steps: list[ORSStep] = Field(default_factory=list)
+
+
 class ORSProperties(BaseModel):
     summary: ORSSummary
     ascent: FiniteFloat | None = None
     extras: ORSExtras | None = None
+    segments: list[ORSSegment] = Field(default_factory=list)
 
 
 class ORSFeature(BaseModel):
@@ -137,6 +148,13 @@ def normalize(route: ORSFeature, request: PreviewRequest) -> RoutedCircuit | Non
         geometry=LineString(coordinates=positions),
         elevation_profile=elevation_profile(points, positions, distance),
         surface=surface_coverage(properties),
+        instructions=[
+            RouteInstruction(text=step.instruction, distance_m=step.distance, start_index=step.way_points[0])
+            for segment in properties.segments
+            for step in segment.steps
+            if step.instruction.strip() and step.distance >= 0
+            and 0 <= step.way_points[0] <= step.way_points[1] < len(points)
+        ],
     )
 
 
@@ -169,7 +187,9 @@ async def request_circuit(
         response = await client.post(DIRECTIONS_URL, json={
             "coordinates": [[origin.longitude, origin.latitude]],
             "elevation": True,
-            "instructions": False,
+            "instructions": True,
+            "instructions_format": "text",
+            "language": "es",
             "extra_info": ["surface"],
             "radiuses": [SNAP_RADIUS_M],
             "options": {
