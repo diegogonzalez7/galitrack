@@ -143,3 +143,64 @@ async def test_api_key_is_required(client, monkeypatch):
     response = await client.post("/api/routes", json=PREFERENCES)
     assert response.status_code == 503
     assert "ORS_API_KEY" in response.json()["detail"]
+
+
+async def test_tries_other_seeds_when_ors_cannot_snap_an_intermediate_point(client, provider):
+    answers = iter([
+        httpx.Response(500, json={"error": {
+            "code": 2099, "message": "Could not find a valid point after 3 tries, for the point:42.43,-8.64,NaN",
+        }}),
+        ors_response(EAST),
+        ors_response(NORTH),
+    ])
+    provider(lambda _: next(answers))
+
+    response = await client.post("/api/routes", json=PREFERENCES)
+
+    assert response.status_code == 200
+    assert len(response.json()["routes"]) == 2
+
+
+async def test_adjusts_distance_hint_after_a_longer_circuit(client, provider):
+    hints = []
+    answers = iter([ors_response(EAST, distance=15000), ors_response(EAST), ors_response(NORTH)])
+
+    def handler(request):
+        hints.append(json.loads(request.content)["options"]["round_trip"]["length"])
+        return next(answers)
+
+    provider(handler)
+    response = await client.post("/api/routes", json=PREFERENCES)
+
+    assert response.status_code == 200
+    assert hints == [10000, 6667, 6667]
+    assert [route["distance_km"] for route in response.json()["routes"]] == [10, 10]
+
+
+async def test_unexpected_provider_error_reports_only_safe_diagnostics(client, provider, caplog):
+    provider(lambda _: httpx.Response(400, json={"error": {
+        "code": 2003, "message": "Internal details that should stay private",
+    }}))
+    response = await client.post("/api/routes", json=PREFERENCES)
+
+    assert response.status_code == 502
+    assert "HTTP 400, código ORS 2003" in response.json()["detail"]
+    assert "HTTP 400, código ORS 2003" in caplog.text
+    assert "Internal details" not in response.text
+    assert "Internal details" not in caplog.text
+
+
+async def test_keeps_geometry_when_provider_omits_some_elevations(client, provider):
+    data = ors_response(EAST).json()
+    feature = data["features"][0]
+    feature["properties"]["summary"].pop("ascent")
+    feature["geometry"]["coordinates"][1][-1] = None
+    provider(lambda _: httpx.Response(200, json=data))
+
+    response = await client.post("/api/routes", json=PREFERENCES)
+
+    assert response.status_code == 200
+    route, = response.json()["routes"]
+    assert route["geometry"]["coordinates"] == EAST
+    assert route["ascent_m"] is None
+    assert route["elevation_profile"] == []

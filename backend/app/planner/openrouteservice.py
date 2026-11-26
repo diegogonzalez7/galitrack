@@ -1,6 +1,7 @@
 """Request and normalize OpenRouteService walking circuits."""
 
 from itertools import accumulate, pairwise
+from logging import getLogger
 from math import asin, ceil, cos, radians, sin, sqrt
 
 import httpx
@@ -8,13 +9,20 @@ from pydantic import BaseModel, Field, FiniteFloat
 
 from .models import (
     ElevationPreference, ElevationSample, Latitude, LineString, Longitude,
-    Position, PreviewRequest, RoutedCircuit, Surface, SurfaceCoverage,
+    Origin, Position, PreviewRequest, RoutedCircuit, Surface, SurfaceCoverage,
 )
+
+logger = getLogger(__name__)
 
 DIRECTIONS_URL = "https://api.openrouteservice.org/v2/directions/foot-walking/geojson"
 SNAP_RADIUS_M = 120
 CLOSURE_TOLERANCE_M = 25
 SEEDS = (42, 1337, 2027)
+ORS_ROUTE_NOT_FOUND = 2009
+ORS_POINT_NOT_FOUND = 2010
+ORS_UNKNOWN_ERROR = 2099
+
+ElevatedPosition = tuple[Longitude, Latitude, FiniteFloat | None]
 PAVED = {1, 3, 4, 5, 6, 7, 14}
 UNPAVED = {2, 8, 9, 10, 11, 12, 15, 16, 17, 18}
 ASCENT_TARGET = {
@@ -32,11 +40,11 @@ class RoutingError(Exception):
 
 class ORSGeometry(BaseModel):
     type: str
-    coordinates: list[tuple[Longitude, Latitude, FiniteFloat] | Position]
+    coordinates: list[ElevatedPosition | Position]
 
 
 class ORSSummary(BaseModel):
-    distance: FiniteFloat
+    distance: FiniteFloat = Field(gt=0)
     ascent: FiniteFloat | None = None
 
 
@@ -83,12 +91,15 @@ def surface_coverage(properties: ORSProperties) -> SurfaceCoverage:
 
 
 def elevation_profile(
-    coordinates: list[tuple[Longitude, Latitude, FiniteFloat] | Position],
+    coordinates: list[ElevatedPosition | Position],
     positions: list[Position],
     distance_km: float,
 ) -> list[ElevationSample]:
-    if any(len(coordinate) != 3 for coordinate in coordinates):
-        return []
+    heights: list[float] = []
+    for coordinate in coordinates:
+        if len(coordinate) != 3 or coordinate[2] is None:
+            return []
+        heights.append(coordinate[2])
     cumulative = list(accumulate((distance_m(a, b) for a, b in pairwise(positions)), initial=0.0))
     if cumulative[-1] == 0:
         return []
@@ -97,7 +108,7 @@ def elevation_profile(
     return [
         ElevationSample(
             distance_km=cumulative[index] * distance_km / cumulative[-1],
-            elevation_m=coordinates[index][-1],
+            elevation_m=heights[index],
         )
         for index in indices
     ]
@@ -114,7 +125,7 @@ def normalize(route: ORSFeature, request: PreviewRequest) -> RoutedCircuit | Non
 
     properties = route.properties
     distance = round(properties.summary.distance / 1000, 3)
-    if abs(distance - request.distance_km) > max(1, request.distance_km * .35):
+    if not distance:
         return None
     ascent = properties.summary.ascent if properties.summary.ascent is not None else properties.ascent
     return RoutedCircuit(
@@ -151,17 +162,19 @@ def segments(route: RoutedCircuit) -> set[tuple[Position, Position]]:
     return {(min(a, b), max(a, b)) for a, b in pairwise(rounded) if a != b}
 
 
-async def request_circuit(client: httpx.AsyncClient, request: PreviewRequest, seed: int) -> list[ORSFeature] | None:
+async def request_circuit(
+    client: httpx.AsyncClient, origin: Origin, length_m: int, seed: int
+) -> list[ORSFeature] | None:
     try:
         response = await client.post(DIRECTIONS_URL, json={
-            "coordinates": [[request.origin.longitude, request.origin.latitude]],
+            "coordinates": [[origin.longitude, origin.latitude]],
             "elevation": True,
             "instructions": False,
             "extra_info": ["surface"],
             "radiuses": [SNAP_RADIUS_M],
             "options": {
                 "avoid_features": ["ferries"],
-                "round_trip": {"length": request.distance_km * 1000, "points": 5, "seed": seed},
+                "round_trip": {"length": length_m, "points": 5, "seed": seed},
             },
         })
     except httpx.TimeoutException as error:
@@ -176,34 +189,65 @@ async def request_circuit(client: httpx.AsyncClient, request: PreviewRequest, se
 
     try:
         payload = response.json()
-        if response.status_code in (400, 404):
-            code = payload.get("error", {}).get("code")
-            if code == 2010:  # No routable point at the origin.
-                return None
-            if code == 2009:
-                return []
-        response.raise_for_status()
-        if payload.get("type") != "FeatureCollection" or not isinstance(payload.get("features"), list):
+    except ValueError:
+        payload = None
+
+    if not response.is_success:
+        error = payload.get("error") if isinstance(payload, dict) else None
+        code = error.get("code") if isinstance(error, dict) else None
+        message = error.get("message") if isinstance(error, dict) else None
+        if code == ORS_POINT_NOT_FOUND and response.status_code in (400, 404):
+            return None
+        if code == ORS_ROUTE_NOT_FOUND and response.status_code in (400, 404):
+            return []
+        # ORS 9.10 reports failure to snap an internally generated waypoint
+        # as HTTP 500 / 2099. The next seed uses different waypoints.
+        if (
+            response.status_code == 500
+            and code == ORS_UNKNOWN_ERROR
+            and isinstance(message, str)
+            and message.startswith("Could not find a valid point after ")
+        ):
+            return []
+
+        status = f"HTTP {response.status_code}"
+        if type(code) is int:
+            status += f", código ORS {code}"
+        logger.warning("OpenRouteService directions failed (%s)", status)
+        raise RoutingError(502, f"OpenRouteService no pudo calcular el circuito ({status}).")
+
+    try:
+        if not isinstance(payload, dict) or payload.get("type") != "FeatureCollection":
             raise ValueError("Expected a GeoJSON FeatureCollection")
-        return [ORSFeature.model_validate(feature) for feature in payload["features"]]
-    except (httpx.HTTPStatusError, ValueError, AttributeError) as error:
-        raise RoutingError(502, "OpenRouteService no pudo calcular el circuito. Inténtalo de nuevo.") from error
+        features = payload.get("features")
+        if not isinstance(features, list):
+            raise ValueError("Expected a GeoJSON features array")
+        return [ORSFeature.model_validate(feature) for feature in features]
+    except ValueError as error:
+        logger.warning("OpenRouteService returned an invalid directions response")
+        raise RoutingError(502, "OpenRouteService devolvió una respuesta de ruta inválida.") from error
 
 
 async def generate_circuits(client: httpx.AsyncClient, request: PreviewRequest) -> list[RoutedCircuit]:
     candidates: list[RoutedCircuit] = []
+    target_km = request.distance_km
+    length_m = round(target_km * 1000)
+    tolerance = max(1, target_km * .35)
     for seed in SEEDS:
         try:
-            features = await request_circuit(client, request, seed)
+            features = await request_circuit(client, request.origin, length_m, seed)
         except RoutingError:
             if not candidates:
                 raise
             break
         if features is None:
             break
-        for feature in features:
-            if (route := normalize(feature, request)) is not None:
-                candidates.append(route)
+        measured = [route for feature in features if (route := normalize(feature, request)) is not None]
+        candidates.extend(route for route in measured if abs(route.distance_km - target_km) <= tolerance)
+        if not candidates and measured:
+            closest = min(measured, key=lambda route: abs(route.distance_km - target_km))
+            # Adjust the provider's length hint while keeping the user's target fixed.
+            length_m = min(30_000, max(1000, round(length_m * target_km / closest.distance_km)))
 
     routes = []
     chosen_segments: list[set[tuple[Position, Position]]] = []
