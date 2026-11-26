@@ -13,7 +13,8 @@ export const GALICIA_BOUNDS = {
 } as const
 
 export const DEFAULTS: Preferences = {
-  origin: { latitude: 42.8805, longitude: -8.5443 },
+  // Acceso sur del Puente de los Tirantes, junto al Lérez.
+  origin: { latitude: 42.4337, longitude: -8.6361 },
   distance_km: 10,
   elevation: 'rolling',
   surface: 'mixed',

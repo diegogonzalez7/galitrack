@@ -11,8 +11,8 @@ const detailedStyle: StyleSpecification = {
       attribution: 'OpenStreetMap',
       data: {
         type: 'Feature',
-        properties: { name: 'Rúa do Franco' },
-        geometry: { type: 'LineString', coordinates: [[-8.546, 42.879], [-8.544, 42.882]] },
+        properties: { name: 'Avenida de Bos Aires' },
+        geometry: { type: 'LineString', coordinates: [[-8.642, 42.4345], [-8.6361, 42.4337]] },
       },
     },
   },
@@ -63,6 +63,7 @@ test('carga el estilo detallado y cambia entre circuitos y perfiles', async ({ p
   const map = page.getByRole('region', { name: 'Mapa de planificación' })
   await expect(map).toHaveAttribute('data-basemap', 'detailed')
   await expect(page.getByText('OpenStreetMap', { exact: true })).toBeVisible()
+  await expect(page.getByTestId('origin')).toHaveText('42.4337° N, 8.6361° O')
   const canvas = page.getByTestId('map-canvas').locator('canvas')
   await canvas.scrollIntoViewIfNeeded()
   await expect(canvas).toBeInViewport()
@@ -70,7 +71,9 @@ test('carga el estilo detallado y cambia entre circuitos y perfiles', async ({ p
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(testInfo.project.use.viewport?.width)
 
   await expect(page.getByRole('button', { name: /Circuito [12]/ })).toHaveCount(0)
+  const request = page.waitForRequest((request) => request.url().endsWith('/api/routes') && request.method() === 'POST')
   await page.getByRole('button', { name: 'Generar rutas' }).click()
+  expect((await request).postDataJSON().origin).toEqual({ latitude: 42.4337, longitude: -8.6361 })
   const first = page.getByRole('button', { name: /Circuito 1/ })
   const second = page.getByRole('button', { name: /Circuito 2/ })
   await expect(first).toHaveAttribute('aria-pressed', 'true')

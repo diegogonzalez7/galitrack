@@ -2,7 +2,7 @@
 
 Planificador web de circuitos de running en Galicia. Elige un origen en el mapa o introduce sus coordenadas, ajusta distancia, desnivel, superficie y ritmo, y compara hasta dos circuitos de la red peatonal con perfiles de elevación.
 
-El mapa detallado usa OpenStreetMap a través de OpenFreeMap, sin clave. Los circuitos requieren una clave gratuita de OpenRouteService.
+El punto inicial está junto al acceso sur del Puente de los Tirantes, en Pontevedra. El mapa detallado usa OpenStreetMap a través de OpenFreeMap, sin clave. Los circuitos requieren una clave gratuita de OpenRouteService.
 
 [Demostración inicial en escritorio](docs/screenshots/escritorio.png) · [Demostración inicial en móvil](docs/screenshots/movil.png)
 

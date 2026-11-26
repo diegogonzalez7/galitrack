@@ -51,7 +51,7 @@ export default function RouteMap({ origin, onOriginChange, routes, selectedId, f
       map = new Map({
         container: container.current,
         center: position(DEFAULTS.origin),
-        zoom: 14,
+        zoom: 15,
         minZoom: 5.5,
         maxZoom: 19,
         maxBounds: [[-11.5, 39.4], [-4.5, 46.4]],
