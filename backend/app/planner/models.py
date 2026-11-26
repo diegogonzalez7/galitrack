@@ -61,3 +61,25 @@ class DemoRoute(BaseModel):
 class PreviewResponse(BaseModel):
     source: Literal["demo"] = "demo"
     routes: list[DemoRoute]
+
+
+class SurfaceCoverage(BaseModel):
+    paved_pct: int = Field(ge=0, le=100)
+    unpaved_pct: int = Field(ge=0, le=100)
+    unknown_pct: int = Field(ge=0, le=100)
+
+
+class RoutedCircuit(BaseModel):
+    id: str
+    name: str
+    distance_km: float = Field(gt=0)
+    ascent_m: int | None = Field(ge=0)
+    estimated_seconds: int = Field(gt=0)
+    geometry: LineString
+    elevation_profile: list[ElevationSample]
+    surface: SurfaceCoverage
+
+
+class RoutesResponse(BaseModel):
+    source: Literal["openrouteservice"] = "openrouteservice"
+    routes: list[RoutedCircuit]

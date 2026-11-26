@@ -4,6 +4,8 @@ services:
     init: true
     ports:
       - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
+    environment:
+      ORS_API_KEY: ${ORS_API_KEY:-}
     healthcheck:
       test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/api/health', timeout=2)"]
       interval: 3s
