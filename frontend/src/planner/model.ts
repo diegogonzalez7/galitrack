@@ -1,7 +1,7 @@
 import type { components } from './api-schema'
 
 export type Origin = components['schemas']['Origin']
-export type Preferences = components['schemas']['PreviewRequest']
+export type Preferences = components['schemas']['GenerateRoutesRequest']
 export type Route = components['schemas']['RoutedCircuit']
 export type RoutesResponse = components['schemas']['RoutesResponse']
 
@@ -19,6 +19,10 @@ export const DEFAULTS: Preferences = {
   elevation: 'rolling',
   surface: 'mixed',
   pace_seconds_per_km: 330,
+  route_count: 2,
+  avoid_traffic_signals: false,
+  avoid_city_center: false,
+  avoid_stairs: false,
 }
 
 export const SURFACES: Record<Preferences['surface'], string> = {

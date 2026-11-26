@@ -1,4 +1,4 @@
-import type { Preferences, Route } from './model'
+import { DEFAULTS, type Preferences, type Route } from './model'
 
 const storageKey = 'galitrack.last-plan'
 
@@ -6,12 +6,14 @@ export interface Plan {
   id: string
   preferences: Preferences
   routes: Route[]
+  warnings?: string[]
 }
 
 export function restorePlan(): Plan | null {
   try {
     const value = JSON.parse(sessionStorage.getItem(storageKey) ?? 'null')
-    return typeof value?.id === 'string' && value.preferences && Array.isArray(value.routes) ? value : null
+    if (typeof value?.id !== 'string' || !value.preferences || !Array.isArray(value.routes)) return null
+    return { ...value, preferences: { ...DEFAULTS, ...value.preferences } }
   } catch {
     return null
   }

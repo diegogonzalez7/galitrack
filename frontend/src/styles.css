@@ -102,10 +102,10 @@ button:disabled { cursor: wait; opacity: .6; }
 .results-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px 18px; margin-bottom: 12px; }
 .results-heading h2 { font-size: 21px; display: flex; align-items: center; gap: 7px; }
 .results-heading h2 span { font-size: 11px; font-weight: 800; border-radius: 5px; padding: 2px 6px; color: #4e6045; background: #e8eddf; letter-spacing: 0; }
-.results-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
+.results-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(235px, 1fr)); gap: 13px; }
 .route-card, .detail-card { padding: 14px; min-width: 0; }
 .route-card { display: flex; flex-direction: column; justify-content: space-between; gap: 12px; text-align: left; }
-.route-card:hover { border-color: #a5bf8c; background: #f9fcf2; }
+.route-card[data-highlighted="true"], .route-card:hover { border-color: #80a966; background: #f9fcf2; }
 .route-card-heading { display: flex; align-items: center; gap: 9px; }
 .route-card-title { display: grid; flex: 1; }
 .route-icon { display: grid; place-items: center; width: 35px; height: 35px; border-radius: 9px; background: #eef3e8; flex: none; }
@@ -190,3 +190,16 @@ button:disabled { cursor: wait; opacity: .6; }
   .route-detail-track .map-panel { min-height: 330px; }
   .route-instructions { max-height: 320px; }
 }
+
+.field-hint { margin-top: 5px; color: var(--muted); font-size: 11px; }
+.route-count-field { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.route-count-field label { font-size: 13px; font-weight: 750; }
+.route-count-field label svg { display: inline-block; vertical-align: -3px; color: #566a53; margin-right: 3px; }
+.route-count-field select { min-width: 52px; min-height: 32px; padding: 4px 7px; border: 1px solid var(--line); border-radius: 7px; background: #f8f9f5; font-size: 13px; font-weight: 750; }
+.route-avoidance { display: grid; grid-template-columns: 1fr; gap: 2px; padding-top: 4px; }
+.route-avoidance label { display: flex; min-height: 27px; align-items: center; gap: 8px; cursor: pointer; color: #4a5649; font-size: 12px; font-weight: 600; }
+.route-avoidance input { width: 15px; height: 15px; accent-color: #39744a; }
+.route-context { display: flex; flex-wrap: wrap; gap: 4px 8px; color: var(--muted); font-size: 11px; }
+.route-context:empty { display: none; }
+.detail-card .route-context { margin-top: 8px; }
+.route-context .grade-mismatch { color: #78541e; }

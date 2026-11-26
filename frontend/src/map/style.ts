@@ -3,6 +3,7 @@ import { ARROW_ICON, FINISH_ICON } from './routeSymbols'
 
 export const ROUTE_LINE_LAYER = 'galitrack-route-line'
 export const ROUTE_FINISH_LAYER = 'galitrack-route-finish'
+export const ROUTE_HIGHLIGHT_LAYERS = ['galitrack-highlight-casing', 'galitrack-highlight-line'] as const
 export const DETAILED_STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty'
 
 const regionalStyle: StyleSpecification = {
@@ -82,6 +83,18 @@ const routeLayers: LayerSpecification[] = [
       'line-color': ['get', 'color'],
       'line-width': ['case', ['==', ['get', 'priority'], 1], 5, 3.5],
     },
+  },
+  {
+    id: ROUTE_HIGHLIGHT_LAYERS[0], type: 'line', source: 'galitrack-routes',
+    filter: ['==', ['get', 'routeId'], ''],
+    layout: { 'line-join': 'round', 'line-cap': 'round' },
+    paint: { 'line-color': '#fff', 'line-width': 13 },
+  },
+  {
+    id: ROUTE_HIGHLIGHT_LAYERS[1], type: 'line', source: 'galitrack-routes',
+    filter: ['==', ['get', 'routeId'], ''],
+    layout: { 'line-join': 'round', 'line-cap': 'round' },
+    paint: { 'line-color': ['get', 'color'], 'line-width': 8 },
   },
   {
     id: 'galitrack-route-direction', type: 'symbol', source: 'galitrack-routes',

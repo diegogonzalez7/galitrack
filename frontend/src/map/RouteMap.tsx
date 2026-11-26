@@ -6,7 +6,7 @@ import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { GALICIA_BOUNDS, withinGalicia, type Origin, type Route } from '../planner/model'
 import { routeColor } from '../planner/routeColor'
 import { addRouteSymbols } from './routeSymbols'
-import { DETAILED_STYLE_URL, regionalMapStyle, ROUTE_FINISH_LAYER, ROUTE_LINE_LAYER, withRoutes } from './style'
+import { DETAILED_STYLE_URL, regionalMapStyle, ROUTE_FINISH_LAYER, ROUTE_HIGHLIGHT_LAYERS, ROUTE_LINE_LAYER, withRoutes } from './style'
 
 // Let Vite resolve and serve the MapLibre module worker in both dev and build.
 setWorkerUrl(workerUrl)
@@ -32,19 +32,22 @@ interface Props {
   origin: Origin
   onOriginChange?: (origin: Origin) => void
   onRouteOpen?: (id: string) => void
+  onRouteHover?: (id: string | undefined) => void
+  highlightedId?: string
   routes: Route[]
   selectedId: string | undefined
   focusOrigin?: Origin | null
   playbackPosition?: [number, number]
 }
 
-export default function RouteMap({ origin, onOriginChange, onRouteOpen, routes, selectedId, focusOrigin, playbackPosition }: Props) {
+export default function RouteMap({ origin, onOriginChange, onRouteOpen, onRouteHover, highlightedId, routes, selectedId, focusOrigin, playbackPosition }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const mapRef = useRef<Map | null>(null)
   const markerRef = useRef<Marker | null>(null)
   const initialOrigin = useRef(origin)
   const canOpenRoute = Boolean(onRouteOpen)
   const openRoute = useEffectEvent((id: string) => onRouteOpen?.(id))
+  const hoverRoute = useEffectEvent((id: string | undefined) => onRouteHover?.(id))
   const [ready, setReady] = useState(false)
   const [status, setStatus] = useState('')
   const [styleVersion, setStyleVersion] = useState(0)
@@ -133,9 +136,15 @@ export default function RouteMap({ origin, onOriginChange, onRouteOpen, routes, 
     }
 
     if (canOpenRoute) {
-      const layers = [ROUTE_FINISH_LAYER, ROUTE_LINE_LAYER]
-      map.on('mouseenter', layers, () => { canvas.style.cursor = 'pointer' })
-      map.on('mouseleave', layers, () => { canvas.style.cursor = '' })
+      map.on('mousemove', ({ point }) => {
+        const id = routeAt(point)
+        canvas.style.cursor = id ? 'pointer' : ''
+        hoverRoute(id)
+      })
+      map.on('mouseout', () => {
+        canvas.style.cursor = ''
+        hoverRoute(undefined)
+      })
     }
     map.on('click', ({ lngLat, point }) => {
       if (canOpenRoute) {
@@ -185,6 +194,15 @@ export default function RouteMap({ origin, onOriginChange, onRouteOpen, routes, 
 
   useEffect(() => {
     const map = mapRef.current
+    if (!map?.getLayer(ROUTE_HIGHLIGHT_LAYERS[1])) return
+    for (const layer of ROUTE_HIGHLIGHT_LAYERS) {
+      map.setFilter(layer, ['==', ['get', 'routeId'], highlightedId ?? ''])
+    }
+    map.setPaintProperty(ROUTE_LINE_LAYER, 'line-opacity', highlightedId ? .6 : 1)
+  }, [styleVersion, highlightedId])
+
+  useEffect(() => {
+    const map = mapRef.current
     if (!ready || !routes.length || !map) return
     const [longitude, latitude] = routes[0].geometry.coordinates[0]
     map.fitBounds(routeBounds(routes, { longitude, latitude }), { padding: 88, maxZoom: 16, duration: 450 })
@@ -209,7 +227,7 @@ export default function RouteMap({ origin, onOriginChange, onRouteOpen, routes, 
 
   return (
     <section className="map-panel" aria-label={onOriginChange ? 'Mapa de planificación' : 'Mapa del recorrido'}
-      data-basemap={basemap}>
+      data-basemap={basemap} data-highlighted-route={highlightedId}>
       <div className="map-canvas" ref={container} data-testid="map-canvas" />
       {onOriginChange && (
         <div className="map-instruction">

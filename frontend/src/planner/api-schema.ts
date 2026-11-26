@@ -88,6 +88,36 @@ export interface components {
             /** Elevation M */
             elevation_m: number;
         };
+        /** GenerateRoutesRequest */
+        GenerateRoutesRequest: {
+            origin: components["schemas"]["Origin"];
+            /** Distance Km */
+            distance_km: number;
+            elevation: components["schemas"]["ElevationPreference"];
+            surface: components["schemas"]["Surface"];
+            /** Pace Seconds Per Km */
+            pace_seconds_per_km: number;
+            /**
+             * Route Count
+             * @default 2
+             */
+            route_count: number;
+            /**
+             * Avoid Traffic Signals
+             * @default false
+             */
+            avoid_traffic_signals: boolean;
+            /**
+             * Avoid City Center
+             * @default false
+             */
+            avoid_city_center: boolean;
+            /**
+             * Avoid Stairs
+             * @default false
+             */
+            avoid_stairs: boolean;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -171,6 +201,12 @@ export interface components {
             surface: components["schemas"]["SurfaceCoverage"];
             /** Instructions */
             instructions?: components["schemas"]["RouteInstruction"][];
+            /** Elevation Match */
+            elevation_match?: boolean | null;
+            /** Traffic Signals */
+            traffic_signals?: number | null;
+            /** Urban Center Pct */
+            urban_center_pct?: number | null;
         };
         /** RoutesResponse */
         RoutesResponse: {
@@ -182,6 +218,8 @@ export interface components {
             source: "openrouteservice";
             /** Routes */
             routes: components["schemas"]["RoutedCircuit"][];
+            /** Warnings */
+            warnings?: string[];
         };
         /**
          * Surface
@@ -281,7 +319,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["PreviewRequest"];
+                "application/json": components["schemas"]["GenerateRoutesRequest"];
             };
         };
         responses: {

@@ -193,9 +193,47 @@ test('abre una ruta al pulsar su trazado en el mapa', async ({ page }) => {
     return canvas.evaluate((element) => getComputedStyle(element).cursor)
   }).toBe('pointer')
 
+  const map = page.getByRole('region', { name: 'Mapa de planificación' })
+  await expect(map).toHaveAttribute('data-highlighted-route', 'ors-1')
+  await expect(page.getByRole('link', { name: /Circuito 1/ })).toHaveAttribute('data-highlighted', 'true')
   const { x, y } = await pointOnRoute()
   await page.mouse.click(x, y)
   await expect(page.getByRole('heading', { name: 'Circuito 1' })).toBeVisible()
   await page.goBack()
   await expect(page.getByRole('link', { name: /Circuito 2/ })).toBeVisible()
+})
+
+
+test('envía el número de alternativas y las preferencias de recorrido', async ({ page }) => {
+  await page.route(styleUrl, (route) => route.fulfill({ json: detailedStyle }))
+  await page.route('**/api/routes', (route) => {
+    const preferences: Preferences = route.request().postDataJSON()
+    const response = answer(preferences)
+    const base = response.routes[0]
+    const routes = Array.from({ length: preferences.route_count - 1 }, (_, index) => ({
+      ...base, id: `ors-${index + 1}`, name: `Circuito ${index + 1}`, ascent_m: 20,
+      elevation_match: index === 0, traffic_signals: 0, urban_center_pct: 4,
+    }))
+    return route.fulfill({ json: { ...response, routes } })
+  })
+  await page.goto('/')
+  await page.getByLabel('Número de rutas').selectOption('4')
+  await page.getByText('Llano', { exact: true }).click()
+  await expect(page.getByText('Hasta 3 m de ascenso por km')).toBeVisible()
+  await page.getByRole('checkbox', { name: 'Evitar semáforos' }).check()
+  await page.getByRole('checkbox', { name: 'Evitar el centro urbano' }).check()
+  await page.getByRole('checkbox', { name: 'Evitar escaleras' }).check()
+  const request = page.waitForRequest((request) => request.url().endsWith('/api/routes') && request.method() === 'POST')
+  await page.getByRole('button', { name: 'Generar rutas' }).click()
+  expect((await request).postDataJSON()).toMatchObject({
+    route_count: 4, elevation: 'flat', avoid_traffic_signals: true, avoid_city_center: true, avoid_stairs: true,
+  })
+  await expect(page.getByText('Encontramos 3 de 4 rutas distintas')).toBeVisible()
+  const first = page.getByRole('link', { name: /Circuito 1/ })
+  await expect(first).toContainText('2 m/km')
+  await expect(first).toContainText('0 semáforos cercanos')
+  await expect(first).toContainText('4 % por el centro urbano')
+  await expect(page.getByRole('link', { name: /Circuito 2/ })).toContainText('Fuera del desnivel elegido')
+  await first.focus()
+  await expect(page.getByRole('region', { name: 'Mapa de planificación' })).toHaveAttribute('data-highlighted-route', 'ors-1')
 })

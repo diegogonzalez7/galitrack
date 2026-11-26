@@ -1,6 +1,8 @@
 # Galitrack
 
-Planificador web de circuitos de running en Galicia. Elige un origen en el mapa o introduce sus coordenadas, ajusta distancia, desnivel, superficie y ritmo, y compara hasta dos circuitos de la red peatonal con perfiles de elevación.
+Planificador web de circuitos de running en Galicia. Elige un origen en el mapa o introduce sus coordenadas, ajusta distancia, desnivel, superficie y ritmo, y elige entre uno y cinco circuitos de la red peatonal con perfiles de elevación.
+
+El formulario permite priorizar los circuitos con menos semáforos o menos tramo por el centro urbano y excluir escaleras. El desnivel se compara en metros de ascenso por kilómetro. Llano busca hasta 3 m/km, ondulado hasta 15 m/km y exigente por encima de 15 m/km. Si faltan alternativas en el rango, se muestran las más próximas con un aviso.
 
 El punto inicial está junto al acceso sur del Puente de los Tirantes, en Pontevedra. Las flechas muestran el sentido de cada circuito y la bandera marca la meta. Pulsa un trazado o su tarjeta para abrir el recorrido y explorarlo con el perfil de elevación y las indicaciones disponibles. El mapa detallado usa OpenStreetMap a través de OpenFreeMap, sin clave. Los circuitos requieren una clave gratuita de OpenRouteService.
 
@@ -18,7 +20,7 @@ docker compose up --build --wait
 
 Abre [la aplicación](http://localhost:5173). La [documentación interactiva de la API](http://localhost:8000/api/docs) y el [health check](http://localhost:8000/api/health) se publican en el puerto del backend. El frontend envía las peticiones a `/api` a través del proxy de Vite.
 
-El navegador necesita acceso a `tiles.openfreemap.org` y el backend a `api.heigit.org` (servicio `/openrouteservice`). Si la cartografía detallada falla, el mapa muestra el respaldo regional e indica que faltan calles y caminos. Si no hay clave o el proveedor no devuelve un circuito válido, el planificador muestra el motivo y deja el mapa sin rutas.
+El navegador necesita acceso a `tiles.openfreemap.org` y el backend a `api.heigit.org` (servicio `/openrouteservice`). Las preferencias de semáforos y centro urbano requieren acceso del backend a `overpass-api.de`. Ambos valores son estimaciones de OpenStreetMap y la app avisa si faltan datos. Si la cartografía detallada falla, el mapa muestra el respaldo regional e indica que faltan calles y caminos. Si no hay clave o el proveedor no devuelve un circuito válido, el planificador muestra el motivo y deja el mapa sin rutas.
 
 Si necesitas cambiar los puertos, copia `.env.example` a `.env` y edita sus valores. Usa `docker compose down` para detener los servicios. Compose sirve la compilación del frontend para probar la aplicación en local.
 

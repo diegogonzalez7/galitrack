@@ -9,10 +9,12 @@ import { RouteDetail } from './planner/RouteDetail'
 
 const RouteMap = lazy(() => import('./map/RouteMap'))
 const NO_ROUTES: Route[] = []
+const NO_WARNINGS: string[] = []
 
 export function App() {
   const [result, setResult] = useState(restorePlan)
   const [preferences, setPreferences] = useState(result?.preferences ?? DEFAULTS)
+  const [highlightedId, setHighlightedId] = useState<string>()
   const [hash, setHash] = useState(() => window.location.hash)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -23,7 +25,10 @@ export function App() {
   useEffect(() => rememberPlan(result), [result])
 
   useEffect(() => {
-    function onNavigation() { setHash(window.location.hash) }
+    function onNavigation() {
+      setHighlightedId(undefined)
+      setHash(window.location.hash)
+    }
     window.addEventListener('hashchange', onNavigation)
     return () => window.removeEventListener('hashchange', onNavigation)
   }, [])
@@ -43,6 +48,7 @@ export function App() {
     activeRequest.current?.abort()
     setPreferences((current) => ({ ...current, origin }))
     setResult(null)
+    setHighlightedId(undefined)
     setLoading(false)
     setError(null)
   }, [])
@@ -58,13 +64,14 @@ export function App() {
     activeRequest.current = controller
     setPreferences(next)
     setLoading(true)
+    setHighlightedId(undefined)
     setResult(null)
     setError(null)
     try {
       const response = await generateRoutes(next, controller.signal)
       if (controller.signal.aborted) return
       const id = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
-      setResult({ id, preferences: next, routes: response.routes })
+      setResult({ id, preferences: next, routes: response.routes, warnings: response.warnings })
     } catch (failure) {
       if (!controller.signal.aborted) {
         setError(failure instanceof Error && !(failure instanceof TypeError)
@@ -80,7 +87,9 @@ export function App() {
   const stale = submitted !== undefined && (
     preferences.distance_km !== submitted.distance_km
     || preferences.elevation !== submitted.elevation || preferences.surface !== submitted.surface
-    || preferences.pace_seconds_per_km !== submitted.pace_seconds_per_km
+    || preferences.pace_seconds_per_km !== submitted.pace_seconds_per_km || preferences.route_count !== submitted.route_count
+    || preferences.avoid_traffic_signals !== submitted.avoid_traffic_signals
+    || preferences.avoid_city_center !== submitted.avoid_city_center || preferences.avoid_stairs !== submitted.avoid_stairs
   )
   const routes = result?.routes ?? NO_ROUTES
   const detailOpen = hash.startsWith('#/rutas/')
@@ -110,10 +119,12 @@ export function App() {
               onSubmit={submit} loading={loading} />
             <Suspense fallback={<div className="map-panel map-placeholder" role="status">Cargando mapa…</div>}>
               <RouteMap origin={preferences.origin} onOriginChange={onOriginChange} routes={routes}
-                selectedId={routes[0]?.id} focusOrigin={focusOrigin} onRouteOpen={onRouteOpen} />
+                selectedId={routes[0]?.id} focusOrigin={focusOrigin} onRouteOpen={onRouteOpen}
+                highlightedId={highlightedId} onRouteHover={setHighlightedId} />
             </Suspense>
           </div>
-          <Results routes={routes} planId={planId} loading={loading}
+          <Results routes={routes} planId={planId} loading={loading} requested={submitted?.route_count ?? preferences.route_count}
+            warnings={result?.warnings ?? NO_WARNINGS} highlightedId={highlightedId} onHighlight={setHighlightedId}
             completed={result !== null} stale={stale} error={error} />
         </>}
       </main>

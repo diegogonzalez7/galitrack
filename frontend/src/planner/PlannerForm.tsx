@@ -1,8 +1,18 @@
-import { ArrowRight, ChevronDown, CircleDot, Footprints, MapPin, Mountain, Route, Timer } from 'lucide-react'
+import { ArrowRight, ChevronDown, CircleDot, Footprints, ListOrdered, MapPin, Mountain, Route, Timer } from 'lucide-react'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { formatKm, formatOrigin, formatPace, parsePace, SURFACES, withinGalicia, type Origin, type Preferences } from './model'
 
 const ELEVATIONS = { flat: 'Llano', rolling: 'Ondulado', hilly: 'Exigente' } as const
+const ASCENT_HINTS = {
+  flat: 'Hasta 3 m de ascenso por km',
+  rolling: 'Más de 3 y hasta 15 m de ascenso por km',
+  hilly: 'Más de 15 m de ascenso por km',
+}
+const ROUTE_OPTIONS = [
+  ['avoid_traffic_signals', 'Evitar semáforos'],
+  ['avoid_city_center', 'Evitar el centro urbano'],
+  ['avoid_stairs', 'Evitar escaleras'],
+] as const
 
 interface Props {
   preferences: Preferences
@@ -57,16 +67,17 @@ function OriginEditor({ origin, onChange }: { origin: Origin; onChange: (origin:
   )
 }
 
-function Segmented<T extends string>({ title, Icon, name, options, value, onChange }: {
+function Segmented<T extends string>({ title, Icon, name, options, value, onChange, hint }: {
   title: string
   Icon: typeof Mountain
   name: string
   options: Record<T, string>
   value: T
   onChange: (value: T) => void
+  hint?: string
 }) {
   return (
-    <fieldset className="field">
+    <fieldset className="field" aria-describedby={hint ? `${name}-hint` : undefined}>
       <legend><Icon size={16} /> {title}</legend>
       <div className="segments">
         {(Object.keys(options) as T[]).map((option) => (
@@ -76,6 +87,7 @@ function Segmented<T extends string>({ title, Icon, name, options, value, onChan
           </label>
         ))}
       </div>
+      {hint && <p className="field-hint" id={`${name}-hint`}>{hint}</p>}
     </fieldset>
   )
 }
@@ -122,7 +134,7 @@ export function PlannerForm({ preferences, onChange, onOriginChange, onSubmit, l
       </div>
 
       <Segmented title="Desnivel" Icon={Mountain} name="elevation" options={ELEVATIONS} value={preferences.elevation}
-        onChange={(elevation) => onChange({ ...preferences, elevation })} />
+        onChange={(elevation) => onChange({ ...preferences, elevation })} hint={ASCENT_HINTS[preferences.elevation]} />
       <Segmented title="Superficie" Icon={Footprints} name="surface" options={SURFACES} value={preferences.surface}
         onChange={(surface) => onChange({ ...preferences, surface })} />
 
@@ -144,6 +156,25 @@ export function PlannerForm({ preferences, onChange, onOriginChange, onSubmit, l
         </div>
         {paceError && <p id="pace-error" className="field-error" role="alert">Usa minutos:segundos, entre 2:00 y 20:00.</p>}
       </div>
+
+      <div className="route-count-field">
+        <label htmlFor="route-count"><ListOrdered size={16} /> Número de rutas</label>
+        <select id="route-count" value={preferences.route_count}
+          onChange={(event) => onChange({ ...preferences, route_count: Number(event.target.value) })}>
+          {[1, 2, 3, 4, 5].map((count) => <option key={count} value={count}>{count}</option>)}
+        </select>
+      </div>
+
+      <fieldset className="field route-avoidance">
+        <legend>Preferencias del recorrido</legend>
+        {ROUTE_OPTIONS.map(([key, label]) => (
+          <label key={key}>
+            <input type="checkbox" checked={preferences[key]}
+              onChange={(event) => onChange({ ...preferences, [key]: event.target.checked })} />
+            <span>{label}</span>
+          </label>
+        ))}
+      </fieldset>
 
       <button className="generate-button" type="submit" disabled={loading}>
         {loading ? 'Calculando…' : 'Generar rutas'} <ArrowRight size={18} aria-hidden="true" />

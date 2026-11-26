@@ -2,7 +2,7 @@ import { ArrowLeft, Navigation, Pause, Play, RotateCcw } from 'lucide-react'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { ElevationProfile } from './ElevationProfile'
 import { formatKm, type Route } from './model'
-import { describeSurface, RouteMetrics } from './RouteMetrics'
+import { describeSurface, RouteContext, RouteMetrics } from './RouteMetrics'
 import { measureTrack } from './track'
 
 const RouteMap = lazy(() => import('../map/RouteMap'))
@@ -129,6 +129,7 @@ export function RouteDetail({ route }: { route: Route }) {
             <h2 id="data-heading">Datos de la ruta</h2>
             <RouteMetrics route={route} />
             <p>{describeSurface(route.surface)}</p>
+            <div className="route-context"><RouteContext route={route} /></div>
           </section>
           <Instructions instructions={track.instructions} active={instructionIndex} onSeek={seek} />
         </aside>
