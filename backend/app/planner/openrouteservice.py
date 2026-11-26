@@ -8,16 +8,18 @@ import httpx
 from pydantic import BaseModel, Field, FiniteFloat
 
 from .models import (
-    ElevationPreference, ElevationSample, Latitude, LineString, Longitude,
-    Origin, Position, PreviewRequest, RouteInstruction, RoutedCircuit, Surface, SurfaceCoverage,
+    ElevationPreference, ElevationSample, GenerateRoutesRequest, Latitude, LineString, Longitude,
+    Origin, Position, RouteInstruction, RoutedCircuit, RoutesResponse, Surface, SurfaceCoverage,
 )
+
+from .osm_context import add_osm_context
 
 logger = getLogger(__name__)
 
 DIRECTIONS_URL = "https://api.heigit.org/openrouteservice/v2/directions/foot-walking/geojson"
 SNAP_RADIUS_M = 120
 CLOSURE_TOLERANCE_M = 25
-SEEDS = (42, 1337, 2027)
+SEEDS = (42, 1337, 2027, 83, 419, 3019, 137, 719, 1723, 2039, 947, 3263)
 ORS_ROUTE_NOT_FOUND = 2009
 ORS_POINT_NOT_FOUND = 2010
 ORS_UNKNOWN_ERROR = 2099
@@ -26,9 +28,9 @@ ElevatedPosition = tuple[Longitude, Latitude, FiniteFloat | None]
 PAVED = {1, 3, 4, 5, 6, 7, 14}
 UNPAVED = {2, 8, 9, 10, 11, 12, 15, 16, 17, 18}
 ASCENT_TARGET = {
-    ElevationPreference.FLAT: 4,
-    ElevationPreference.ROLLING: 14,
-    ElevationPreference.HILLY: 28,
+    ElevationPreference.FLAT: 1,
+    ElevationPreference.ROLLING: 9,
+    ElevationPreference.HILLY: 25,
 }
 
 
@@ -125,7 +127,7 @@ def elevation_profile(
     ]
 
 
-def normalize(route: ORSFeature, request: PreviewRequest) -> RoutedCircuit | None:
+def normalize(route: ORSFeature, request: GenerateRoutesRequest) -> RoutedCircuit | None:
     points = route.geometry.coordinates
     if route.geometry.type != "LineString" or len(points) < 4:
         return None
@@ -139,6 +141,8 @@ def normalize(route: ORSFeature, request: PreviewRequest) -> RoutedCircuit | Non
     if not distance:
         return None
     ascent = properties.summary.ascent if properties.summary.ascent is not None else properties.ascent
+    if ascent is None and all(len(point) == 3 and point[2] is not None for point in points):
+        ascent = sum(max(0, b[2] - a[2]) for a, b in pairwise(points))
     return RoutedCircuit(
         id="candidate",
         name="Circuito",
@@ -158,21 +162,39 @@ def normalize(route: ORSFeature, request: PreviewRequest) -> RoutedCircuit | Non
     )
 
 
-def score(route: RoutedCircuit, request: PreviewRequest) -> float:
+def elevation_band(ascent_per_km: float) -> ElevationPreference:
+    if ascent_per_km <= 3:
+        return ElevationPreference.FLAT
+    if ascent_per_km <= 15:
+        return ElevationPreference.ROLLING
+    return ElevationPreference.HILLY
+
+
+def score(route: RoutedCircuit, request: GenerateRoutesRequest) -> tuple[int, float, float]:
+    ascent = route.ascent_m / route.distance_km if route.ascent_m is not None else None
+    band_priority = 2 if ascent is None else int(elevation_band(ascent) != request.elevation)
+    mismatch = 0.0
+    if band_priority == 1:
+        match request.elevation:
+            case ElevationPreference.FLAT:
+                mismatch = ascent - 3
+            case ElevationPreference.ROLLING:
+                mismatch = max(3 - ascent, ascent - 15)
+            case ElevationPreference.HILLY:
+                mismatch = 15 - ascent
+
     distance_error = abs(route.distance_km - request.distance_km) / request.distance_km
-    target = ASCENT_TARGET[request.elevation]
-    slope_error = (
-        0.5 if route.ascent_m is None
-        else min(1, abs(route.ascent_m / route.distance_km - target) / max(15, target))
-    )
-    paved = route.surface.paved_pct
-    unpaved = route.surface.unpaved_pct
+    slope_error = 0 if ascent is None else min(1, abs(ascent - ASCENT_TARGET[request.elevation]) / 25)
+    paved, unpaved = route.surface.paved_pct, route.surface.unpaved_pct
     surface_match = {
         Surface.ASPHALT: paved,
         Surface.TRAIL: unpaved,
         Surface.MIXED: 2 * min(paved, unpaved),
     }
-    return distance_error + .25 * slope_error + .2 * (1 - surface_match[request.surface] / 100)
+    traffic = min(1, (route.traffic_signals or 0) / route.distance_km / 5)
+    center = (route.urban_center_pct or 0) / 100
+    preference_error = distance_error + .2 * slope_error + .2 * (1 - surface_match[request.surface] / 100)
+    return band_priority, mismatch, preference_error + .8 * traffic + .65 * center
 
 
 def segments(route: RoutedCircuit) -> set[tuple[Position, Position]]:
@@ -181,7 +203,7 @@ def segments(route: RoutedCircuit) -> set[tuple[Position, Position]]:
 
 
 async def request_circuit(
-    client: httpx.AsyncClient, origin: Origin, length_m: int, seed: int
+    client: httpx.AsyncClient, origin: Origin, length_m: int, seed: int, points: int, avoid_stairs: bool
 ) -> list[ORSFeature] | None:
     try:
         response = await client.post(DIRECTIONS_URL, json={
@@ -193,8 +215,8 @@ async def request_circuit(
             "extra_info": ["surface"],
             "radiuses": [SNAP_RADIUS_M],
             "options": {
-                "avoid_features": ["ferries"],
-                "round_trip": {"length": length_m, "points": 5, "seed": seed},
+                "avoid_features": ["ferries", "steps"] if avoid_stairs else ["ferries"],
+                "round_trip": {"length": length_m, "points": points, "seed": seed},
             },
         })
     except httpx.TimeoutException as error:
@@ -248,14 +270,31 @@ async def request_circuit(
         raise RoutingError(502, "OpenRouteService devolvió una respuesta de ruta inválida.") from error
 
 
-async def generate_circuits(client: httpx.AsyncClient, request: PreviewRequest) -> list[RoutedCircuit]:
+def distinct_routes(candidates: list[RoutedCircuit], limit: int) -> list[RoutedCircuit]:
+    routes: list[RoutedCircuit] = []
+    chosen_segments: list[set[tuple[Position, Position]]] = []
+    for candidate in candidates:
+        edges = segments(candidate)
+        if not edges or any(len(edges & chosen) / len(edges | chosen) >= .8 for chosen in chosen_segments):
+            continue
+        chosen_segments.append(edges)
+        routes.append(candidate)
+        if len(routes) == limit:
+            break
+    return routes
+
+
+async def generate_circuits(client: httpx.AsyncClient, request: GenerateRoutesRequest) -> RoutesResponse:
     candidates: list[RoutedCircuit] = []
     target_km = request.distance_km
     length_m = round(target_km * 1000)
     tolerance = max(1, target_km * .35)
-    for seed in SEEDS:
+    use_osm = request.avoid_city_center or request.avoid_traffic_signals
+    budget = min(len(SEEDS), request.route_count * 2 + 3)
+    for index, seed in enumerate(SEEDS[:budget]):
+        points = 5 if index < 3 else (4, 3, 5)[(index - 3) % 3]
         try:
-            features = await request_circuit(client, request.origin, length_m, seed)
+            features = await request_circuit(client, request.origin, length_m, seed, points, request.avoid_stairs)
         except RoutingError:
             if not candidates:
                 raise
@@ -263,21 +302,25 @@ async def generate_circuits(client: httpx.AsyncClient, request: PreviewRequest) 
         if features is None:
             break
         measured = [route for feature in features if (route := normalize(feature, request)) is not None]
-        candidates.extend(route for route in measured if abs(route.distance_km - target_km) <= tolerance)
+        for route in measured:
+            if route.ascent_m is not None:
+                route.elevation_match = elevation_band(route.ascent_m / route.distance_km) == request.elevation
+            if abs(route.distance_km - target_km) <= tolerance:
+                candidates.append(route)
         if not candidates and measured:
             closest = min(measured, key=lambda route: abs(route.distance_km - target_km))
-            # Adjust the provider's length hint while keeping the user's target fixed.
             length_m = min(30_000, max(1000, round(length_m * target_km / closest.distance_km)))
+        if index >= 2 and not use_osm:
+            matches = [route for route in candidates if route.elevation_match]
+            if len(distinct_routes(matches, request.route_count)) == request.route_count:
+                break
 
-    routes = []
-    chosen_segments: list[set[tuple[Position, Position]]] = []
-    for candidate in sorted(candidates, key=lambda route: score(route, request)):
-        edges = segments(candidate)
-        if not edges or any(len(edges & chosen) / len(edges | chosen) >= .8 for chosen in chosen_segments):
-            continue
-        chosen_segments.append(edges)
-        index = len(chosen_segments)
-        routes.append(candidate.model_copy(update={"id": f"ors-{index}", "name": f"Circuito {index}"}))
-        if len(routes) == 2:
-            break
-    return routes
+    warnings = []
+    if use_osm and candidates and not await add_osm_context(candidates, request):
+        warnings.append("No se pudieron consultar los semáforos o centros urbanos en OpenStreetMap.")
+    ranked = sorted(candidates, key=lambda route: score(route, request))
+    routes = [
+        route.model_copy(update={"id": f"ors-{index}", "name": f"Circuito {index}"})
+        for index, route in enumerate(distinct_routes(ranked, request.route_count), start=1)
+    ]
+    return RoutesResponse(routes=routes, warnings=warnings)

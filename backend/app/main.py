@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 
 from .planner.fixtures import make_demo_routes
-from .planner.models import PreviewRequest, PreviewResponse, RoutesResponse
+from .planner.models import GenerateRoutesRequest, PreviewRequest, PreviewResponse, RoutesResponse
 from .planner.openrouteservice import RoutingError, generate_circuits
 
 app = FastAPI(
@@ -44,10 +44,10 @@ async def ors_client() -> AsyncIterator[httpx.AsyncClient]:
 
 @api.post("/routes", tags=["planner"])
 async def generate_routes(
-    request: PreviewRequest, client: Annotated[httpx.AsyncClient, Depends(ors_client)]
+    request: GenerateRoutesRequest, client: Annotated[httpx.AsyncClient, Depends(ors_client)]
 ) -> RoutesResponse:
     try:
-        return RoutesResponse(routes=await generate_circuits(client, request))
+        return await generate_circuits(client, request)
     except RoutingError as error:
         raise HTTPException(error.status, str(error)) from error
 

@@ -37,6 +37,13 @@ class PreviewRequest(BaseModel):
     pace_seconds_per_km: int = Field(ge=120, le=1200)
 
 
+class GenerateRoutesRequest(PreviewRequest):
+    route_count: int = Field(default=2, ge=1, le=5)
+    avoid_traffic_signals: bool = False
+    avoid_city_center: bool = False
+    avoid_stairs: bool = False
+
+
 class LineString(BaseModel):
     type: Literal["LineString"] = "LineString"
     coordinates: list[Position] = Field(min_length=2)
@@ -85,8 +92,12 @@ class RoutedCircuit(BaseModel):
     elevation_profile: list[ElevationSample]
     surface: SurfaceCoverage
     instructions: list[RouteInstruction] = Field(default_factory=list)
+    elevation_match: bool | None = None
+    traffic_signals: int | None = Field(default=None, ge=0)
+    urban_center_pct: int | None = Field(default=None, ge=0, le=100)
 
 
 class RoutesResponse(BaseModel):
     source: Literal["openrouteservice"] = "openrouteservice"
     routes: list[RoutedCircuit]
+    warnings: list[str] = Field(default_factory=list)
