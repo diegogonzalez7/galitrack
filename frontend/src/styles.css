@@ -102,7 +102,6 @@ button:disabled { cursor: wait; opacity: .6; }
 .results-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px 18px; margin-bottom: 12px; }
 .results-heading h2 { font-size: 21px; display: flex; align-items: center; gap: 7px; }
 .results-heading h2 span { font-size: 11px; font-weight: 800; border-radius: 5px; padding: 2px 6px; color: #4e6045; background: #e8eddf; letter-spacing: 0; }
-.demo-label { display: inline-flex; flex: none; gap: 5px; align-items: center; border: 1px solid #dfe6d2; color: #465c3e; background: #eff3e7; border-radius: 6px; padding: 5px 8px; font-size: 11px; font-weight: 750; }
 .results-grid { display: grid; grid-template-columns: 1fr 1fr 1.05fr; gap: 13px; }
 .route-card, .profile-card { padding: 14px; min-width: 0; }
 .route-card { display: flex; flex-direction: column; justify-content: space-between; gap: 12px; text-align: left; }

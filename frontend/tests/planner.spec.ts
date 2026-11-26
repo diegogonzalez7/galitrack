@@ -1,99 +1,139 @@
 import { expect, test } from '@playwright/test'
-import type { Preferences, Preview } from '../src/planner/model'
+import type { StyleSpecification } from 'maplibre-gl'
+import type { Preferences, Route, RoutesResponse } from '../src/planner/model'
 
-test('muestra el mapa local, las dos alternativas y el perfil seleccionado', async ({ page }, testInfo) => {
+const styleUrl = 'https://tiles.openfreemap.org/styles/liberty'
+const detailedStyle: StyleSpecification = {
+  version: 8,
+  sources: {
+    streets: {
+      type: 'geojson',
+      attribution: 'OpenStreetMap',
+      data: {
+        type: 'Feature',
+        properties: { name: 'Rúa do Franco' },
+        geometry: { type: 'LineString', coordinates: [[-8.546, 42.879], [-8.544, 42.882]] },
+      },
+    },
+  },
+  layers: [
+    { id: 'background', type: 'background', paint: { 'background-color': '#eaf0e2' } },
+    { id: 'street', type: 'line', source: 'streets', paint: { 'line-color': '#807a65', 'line-width': 4 } },
+    {
+      id: 'street-names', type: 'symbol', source: 'streets',
+      layout: { 'symbol-placement': 'line', 'text-field': ['get', 'name'], 'text-font': ['Arial Regular'] },
+    },
+  ],
+}
+
+function answer(preferences: Preferences): RoutesResponse {
+  const { origin: { longitude, latitude }, distance_km, pace_seconds_per_km } = preferences
+  const loop: Route['geometry']['coordinates'] = [
+    [longitude, latitude], [longitude + .009, latitude],
+    [longitude + .009, latitude + .006], [longitude, latitude + .006], [longitude, latitude],
+  ]
+  const first: Route = {
+    id: 'ors-1', name: 'Circuito 1', distance_km, ascent_m: 80,
+    estimated_seconds: Math.round(distance_km * pace_seconds_per_km),
+    geometry: { type: 'LineString', coordinates: loop },
+    elevation_profile: [
+      { distance_km: 0, elevation_m: 25 },
+      { distance_km: distance_km / 2, elevation_m: 63 },
+      { distance_km, elevation_m: 25 },
+    ],
+    surface: { paved_pct: 60, unpaved_pct: 30, unknown_pct: 10 },
+  }
+  return {
+    source: 'openrouteservice',
+    routes: [first, {
+      ...first,
+      id: 'ors-2', name: 'Circuito 2',
+      geometry: { type: 'LineString', coordinates: loop.map(([x, y]) => [2 * longitude - x, y]) },
+    }],
+  }
+}
+
+test('carga el estilo detallado y cambia entre circuitos y perfiles', async ({ page }, testInfo) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
-  page.on('console', (message) => {
-    if (message.type() === 'error') errors.push(message.text())
-  })
-
+  await page.route(styleUrl, (route) => route.fulfill({ json: detailedStyle }))
+  await page.route('**/api/routes', (route) => route.fulfill({ json: answer(route.request().postDataJSON()) }))
   await page.goto('/')
-  expect((await page.request.get('/data/galicia.geojson')).ok()).toBeTruthy()
-  await expect(page.getByRole('heading', { name: 'Tu próxima ruta empieza aquí.' })).toBeVisible()
-  await expect(page.getByText('Datos de demostración')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Acercar mapa' })).toBeEnabled()
+
+  const map = page.getByRole('region', { name: 'Mapa de planificación' })
+  await expect(map).toHaveAttribute('data-basemap', 'detailed')
+  await expect(page.getByText('OpenStreetMap', { exact: true })).toBeVisible()
   const canvas = page.getByTestId('map-canvas').locator('canvas')
   await canvas.scrollIntoViewIfNeeded()
-  await expect(canvas).toBeInViewport({ ratio: 0.25 })
-  const bounds = await canvas.boundingBox()
-  expect(bounds?.height).toBeGreaterThanOrEqual(320)
-
-  const west = page.getByRole('button', { name: /Circular do Val/ })
-  const east = page.getByRole('button', { name: /Volta do Monte/ })
-  await expect(west).toHaveAttribute('aria-pressed', 'true')
-  await expect(page.getByRole('img', { name: /Perfil simulado de Circular do Val/ })).toBeVisible()
+  await expect(canvas).toBeInViewport()
+  expect((await canvas.boundingBox())?.height).toBeGreaterThanOrEqual(320)
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(testInfo.project.use.viewport?.width)
 
-  if (process.env.UPDATE_SCREENSHOTS === '1') {
-    await page.evaluate(() => document.fonts.ready)
-    await page.evaluate(() => window.scrollTo(0, 0))
-    await page.screenshot({
-      path: `../docs/screenshots/${testInfo.project.name}.png`,
-      fullPage: true,
-      scale: 'css',
-      animations: 'disabled',
-    })
-  }
-
-  await east.click()
-  await expect(east).toHaveAttribute('aria-pressed', 'true')
-  await expect(page.getByRole('img', { name: /Perfil simulado de Volta do Monte/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Circuito [12]/ })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Generar rutas' }).click()
+  const first = page.getByRole('button', { name: /Circuito 1/ })
+  const second = page.getByRole('button', { name: /Circuito 2/ })
+  await expect(first).toHaveAttribute('aria-pressed', 'true')
+  await expect(first).toContainText('10 % sin clasificar')
+  await expect(page.getByRole('img', { name: 'Perfil de elevación de Circuito 1' })).toBeVisible()
+  await second.click()
+  await expect(second).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('img', { name: 'Perfil de elevación de Circuito 2' })).toBeVisible()
   expect(errors).toEqual([])
 })
 
-test('regenera las rutas con el origen elegido en el mapa y las preferencias del corredor', async ({ page }) => {
+test('el respaldo regional conserva la selección del mapa y limpia las rutas al cambiar el origen', async ({ page }) => {
+  await page.route(styleUrl, (route) => route.fulfill({ status: 503 }))
+  await page.route('**/api/routes', (route) => route.fulfill({ json: answer(route.request().postDataJSON()) }))
   await page.goto('/')
+  await expect(page.getByText('Mapa regional de respaldo · Calles y caminos no disponibles')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Acercar mapa' })).toBeEnabled()
+  await page.getByRole('button', { name: 'Generar rutas' }).click()
+  await expect(page.getByRole('button', { name: /Circuito 1/ })).toBeVisible()
   const origin = page.getByTestId('origin')
   const original = await origin.textContent()
   await page.getByTestId('map-canvas').locator('canvas').click({ position: { x: 90, y: 190 } })
   await expect(origin).not.toHaveText(original ?? '')
-  await expect(page.getByText('Genera rutas para aplicar los cambios.')).toBeVisible()
+  await expect(page.getByRole('button', { name: /Circuito 1/ })).toHaveCount(0)
+
   await page.getByRole('slider', { name: 'Distancia objetivo' }).fill('12')
   await page.getByText('Exigente', { exact: true }).click()
   await page.getByText('Tierra', { exact: true }).click()
   await page.getByLabel('Ritmo estimado').fill('6:00')
-
-  const responsePromise = page.waitForResponse((response) =>
-    response.url().endsWith('/api/routes/preview') && response.request().method() === 'POST',
-  )
-  await page.getByRole('button', { name: 'Generar rutas demo' }).click()
-  const response = await responsePromise
-  expect(response.ok()).toBeTruthy()
-  const result: Preview = await response.json()
-  const submitted: Preferences = response.request().postDataJSON()
-  expect(submitted).toMatchObject({
-    distance_km: 12,
-    surface: 'trail',
-    elevation: 'hilly',
-    pace_seconds_per_km: 360,
+  const request = page.waitForRequest((request) => request.url().endsWith('/api/routes') && request.method() === 'POST')
+  await page.getByRole('button', { name: 'Generar rutas' }).click()
+  expect((await request).postDataJSON()).toMatchObject({
+    distance_km: 12, surface: 'trail', elevation: 'hilly', pace_seconds_per_km: 360,
   })
-  expect(result.source).toBe('demo')
-  expect(result.routes[0].geometry.coordinates[0]).toEqual([submitted.origin.longitude, submitted.origin.latitude])
-  await expect(page.getByRole('button', { name: /Circular do Val/ })).toContainText('12 km')
-  await expect(page.getByRole('button', { name: /Circular do Val/ })).toContainText('1 h 12 min')
-  await expect(page.getByText('Genera rutas para aplicar los cambios.')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /Circuito 1/ })).toContainText('1 h 12 min')
 })
 
-test('acepta coordenadas por teclado y permite reintentar tras un error de la API', async ({ page }) => {
-  await page.route('**/api/routes/preview', (route) => route.fulfill({ status: 503 }))
+test('un error de configuración o un origen sin circuito no dibujan rutas sintéticas', async ({ page }) => {
+  await page.route(styleUrl, (route) => route.abort())
+  let configured = false
+  await page.route('**/api/routes', (route) => configured
+    ? route.fulfill({ json: { source: 'openrouteservice', routes: [] } })
+    : route.fulfill({ status: 503, json: { detail: 'Configura ORS_API_KEY en el servidor para generar rutas reales.' } }))
   await page.goto('/')
-  await expect(page.getByRole('alert')).toContainText('No se pudieron generar las rutas')
-  await page.unroute('**/api/routes/preview')
+  await page.getByRole('button', { name: 'Generar rutas' }).click()
+  await expect(page.getByRole('alert')).toContainText('Configura ORS_API_KEY')
+  await expect(page.getByRole('button', { name: /Circuito 1/ })).toHaveCount(0)
+  configured = true
 
   await page.locator('summary').filter({ hasText: 'Punto de partida' }).press('Enter')
-  await page.getByLabel('Latitud', { exact: true }).fill('43,371')
-  await page.getByLabel('Longitud', { exact: true }).fill('-8,411')
+  await page.getByLabel('Latitud', { exact: true }).fill('42,4331')
+  await page.getByLabel('Longitud', { exact: true }).fill('-8,6441')
   await page.getByRole('button', { name: 'Usar coordenadas' }).press('Enter')
-  await expect(page.getByTestId('origin')).toContainText('43.3710° N, 8.4110° O')
-
+  await expect(page.getByTestId('origin')).toContainText('42.4331° N, 8.6441° O')
   await page.getByLabel('Ritmo estimado').fill('0:00')
-  await page.getByRole('button', { name: 'Generar rutas demo' }).press('Enter')
+  await page.getByRole('button', { name: 'Generar rutas' }).press('Enter')
   await expect(page.getByLabel('Ritmo estimado')).toBeFocused()
   await expect(page.getByText('Usa minutos:segundos, entre 2:00 y 20:00.')).toBeVisible()
   await page.getByLabel('Ritmo estimado').fill('5:00')
-  await page.getByRole('button', { name: 'Generar rutas demo' }).press('Enter')
-  await expect(page.getByRole('button', { name: /Circular do Val/ })).toBeVisible()
+  const request = page.waitForRequest((request) => request.url().endsWith('/api/routes') && request.method() === 'POST')
+  await page.getByRole('button', { name: 'Generar rutas' }).press('Enter')
+  expect((await request).postDataJSON().origin).toEqual({ latitude: 42.4331, longitude: -8.6441 })
+  await expect(page.getByText(/No encontramos un circuito/)).toBeVisible()
+  await expect(page.getByRole('button', { name: /Circuito 1/ })).toHaveCount(0)
   await expect(page.getByRole('alert')).toHaveCount(0)
 })

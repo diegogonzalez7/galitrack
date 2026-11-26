@@ -5,7 +5,7 @@ import { AttributionControl, LngLatBounds, Map, Marker, ScaleControl, setWorkerU
 import { useEffect, useRef, useState } from 'react'
 import { DEFAULTS, GALICIA_BOUNDS, withinGalicia, type Origin, type Route } from '../planner/model'
 import { routeColor } from '../planner/routeColor'
-import { mapStyle } from './style'
+import { DETAILED_STYLE_URL, regionalMapStyle, withRoutes } from './style'
 
 // Let Vite resolve and serve the MapLibre module worker in both dev and build.
 setWorkerUrl(workerUrl)
@@ -32,15 +32,17 @@ interface Props {
   onOriginChange: (origin: Origin) => void
   routes: Route[]
   selectedId: string | undefined
-  fitOnUpdate: boolean
+  focusOrigin: Origin | null
 }
 
-export default function RouteMap({ origin, onOriginChange, routes, selectedId, fitOnUpdate }: Props) {
+export default function RouteMap({ origin, onOriginChange, routes, selectedId, focusOrigin }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const mapRef = useRef<Map | null>(null)
   const markerRef = useRef<Marker | null>(null)
   const [ready, setReady] = useState(false)
   const [status, setStatus] = useState('')
+  const [styleVersion, setStyleVersion] = useState(0)
+  const [basemap, setBasemap] = useState<'loading' | 'detailed' | 'regional'>('loading')
 
   useEffect(() => {
     if (!container.current) return
@@ -48,11 +50,10 @@ export default function RouteMap({ origin, onOriginChange, routes, selectedId, f
     try {
       map = new Map({
         container: container.current,
-        style: mapStyle,
-        center: container.current.clientWidth < 520 ? position(DEFAULTS.origin) : [-8.63, 42.867],
-        zoom: 9.4,
+        center: position(DEFAULTS.origin),
+        zoom: 14,
         minZoom: 5.5,
-        maxZoom: 14,
+        maxZoom: 19,
         maxBounds: [[-11.5, 39.4], [-4.5, 46.4]],
         attributionControl: false,
         renderWorldCopies: false,
@@ -76,8 +77,41 @@ export default function RouteMap({ origin, onOriginChange, routes, selectedId, f
     pin.setAttribute('aria-hidden', 'true')
     const marker = new Marker({ element: pin }).setLngLat(position(DEFAULTS.origin)).addTo(map)
     markerRef.current = marker
-    map.on('load', () => setReady(true))
-    map.on('error', () => setStatus('No se pudo cargar la cartografía. Puedes indicar el origen por coordenadas.'))
+    let disposed = false
+    let regional = false
+    let detailedLoaded = false
+    const timer = window.setTimeout(() => useRegionalMap(), 12_000)
+
+    function useRegionalMap() {
+      if (regional || disposed) return
+      regional = true
+      window.clearTimeout(timer)
+      setBasemap('regional')
+      // Style errors can be emitted while MapLibre is applying the current style.
+      queueMicrotask(() => {
+        if (disposed) return
+        if (!detailedLoaded) map.jumpTo({ zoom: 9.4 })
+        map.setStyle(regionalMapStyle, { diff: false })
+      })
+    }
+
+    map.on('style.load', () => setStyleVersion((version) => version + 1))
+    map.on('idle', () => {
+      setReady(true)
+      if (!regional && !detailedLoaded) {
+        detailedLoaded = true
+        window.clearTimeout(timer)
+        setBasemap('detailed')
+      }
+    })
+    map.on('error', () => {
+      if (!regional) useRegionalMap()
+      else setStatus('No se pudo cargar la cartografía de respaldo. Puedes usar las coordenadas.')
+    })
+    map.setStyle(DETAILED_STYLE_URL, {
+      diff: false,
+      transformStyle: (_previous, next) => withRoutes(next),
+    })
     map.on('click', ({ lngLat }) => {
       const next = { longitude: Number(lngLat.lng.toFixed(5)), latitude: Number(lngLat.lat.toFixed(5)) }
       if (!withinGalicia(next)) {
@@ -88,6 +122,8 @@ export default function RouteMap({ origin, onOriginChange, routes, selectedId, f
       onOriginChange(next)
     })
     return () => {
+      disposed = true
+      window.clearTimeout(timer)
       marker.remove()
       map.remove()
       markerRef.current = null
@@ -100,8 +136,7 @@ export default function RouteMap({ origin, onOriginChange, routes, selectedId, f
   }, [origin])
 
   useEffect(() => {
-    if (!ready) return
-    const source = mapRef.current?.getSource<GeoJSONSource>('routes')
+    const source = mapRef.current?.getSource<GeoJSONSource>('galitrack-routes')
     source?.setData({
       type: 'FeatureCollection',
       features: routes.map((route) => ({
@@ -110,21 +145,30 @@ export default function RouteMap({ origin, onOriginChange, routes, selectedId, f
         properties: { color: routeColor(route.id), priority: Number(route.id === selectedId) },
       })),
     })
-  }, [ready, routes, selectedId])
+  }, [styleVersion, routes, selectedId])
 
   useEffect(() => {
     const map = mapRef.current
-    if (!ready || !fitOnUpdate || !routes.length || !map) return
+    if (!ready || !routes.length || !map) return
     const [longitude, latitude] = routes[0].geometry.coordinates[0]
-    map.fitBounds(routeBounds(routes, { longitude, latitude }), { padding: 88, maxZoom: 11.5, duration: 450 })
-  }, [ready, fitOnUpdate, routes])
+    map.fitBounds(routeBounds(routes, { longitude, latitude }), { padding: 88, maxZoom: 16, duration: 450 })
+  }, [ready, routes])
+
+  useEffect(() => {
+    if (ready && focusOrigin) {
+      mapRef.current?.easeTo({ center: position(focusOrigin), zoom: basemap === 'regional' ? 11 : 15, duration: 360 })
+    }
+  }, [ready, focusOrigin, basemap])
 
   function showOrigin() {
-    mapRef.current?.easeTo({ center: position(origin), zoom: 10, duration: 360 })
+    const map = mapRef.current
+    if (!map) return
+    const zoom = Math.max(map.getZoom(), basemap === 'regional' ? 11 : 15)
+    map.easeTo({ center: position(origin), zoom, duration: 360 })
   }
 
   return (
-    <section className="map-panel" aria-label="Mapa de planificación">
+    <section className="map-panel" aria-label="Mapa de planificación" data-basemap={basemap}>
       <div className="map-canvas" ref={container} data-testid="map-canvas" />
       <div className="map-instruction"><span className="map-instruction-dot" /> Haz clic en el mapa para elegir el origen</div>
       <div className="map-tools">
@@ -135,7 +179,9 @@ export default function RouteMap({ origin, onOriginChange, routes, selectedId, f
         <button type="button" aria-label="Centrar en el origen" title="Centrar en el origen" disabled={!ready} onClick={showOrigin}><Crosshair size={18} /></button>
         <button type="button" aria-label="Ver toda Galicia" title="Ver toda Galicia" disabled={!ready} onClick={() => mapRef.current?.fitBounds(regionBounds, { padding: 32, duration: 360 })}><Maximize2 size={16} /></button>
       </div>
-      {status && <p className="map-status" role="status">{status}</p>}
+      {(status || basemap === 'regional') && (
+        <p className="map-status" role="status">{status || 'Mapa regional de respaldo · Calles y caminos no disponibles'}</p>
+      )}
     </section>
   )
 }

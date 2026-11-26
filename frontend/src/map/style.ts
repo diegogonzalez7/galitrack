@@ -1,6 +1,8 @@
-import type { StyleSpecification } from 'maplibre-gl'
+import type { LayerSpecification, StyleSpecification } from 'maplibre-gl'
 
-export const mapStyle: StyleSpecification = {
+export const DETAILED_STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty'
+
+const regionalStyle: StyleSpecification = {
   version: 8,
   sources: {
     region: {
@@ -8,7 +10,6 @@ export const mapStyle: StyleSpecification = {
       data: '/data/galicia.geojson',
       attribution: '<a href="https://www.naturalearthdata.com/about/terms-of-use/" target="_blank" rel="noopener noreferrer">Natural Earth</a>',
     },
-    routes: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
   },
   layers: [
     { id: 'water', type: 'background', paint: { 'background-color': '#cce3e9' } },
@@ -62,18 +63,34 @@ export const mapStyle: StyleSpecification = {
       },
       paint: { 'text-color': '#49584d', 'text-halo-color': '#f5f6ed', 'text-halo-width': 1.5 },
     },
-    {
-      id: 'route-casing', type: 'line', source: 'routes',
-      layout: { 'line-join': 'round', 'line-cap': 'round', 'line-sort-key': ['get', 'priority'] },
-      paint: { 'line-color': '#fff', 'line-width': ['case', ['==', ['get', 'priority'], 1], 8, 6] },
-    },
-    {
-      id: 'route-line', type: 'line', source: 'routes',
-      layout: { 'line-join': 'round', 'line-cap': 'round', 'line-sort-key': ['get', 'priority'] },
-      paint: {
-        'line-color': ['get', 'color'],
-        'line-width': ['case', ['==', ['get', 'priority'], 1], 5, 3.5],
-      },
-    },
   ],
 }
+
+const routeLayers: LayerSpecification[] = [
+  {
+    id: 'galitrack-route-casing', type: 'line', source: 'galitrack-routes',
+    layout: { 'line-join': 'round', 'line-cap': 'round', 'line-sort-key': ['get', 'priority'] },
+    paint: { 'line-color': '#fff', 'line-width': ['case', ['==', ['get', 'priority'], 1], 8, 6] },
+  },
+  {
+    id: 'galitrack-route-line', type: 'line', source: 'galitrack-routes',
+    layout: { 'line-join': 'round', 'line-cap': 'round', 'line-sort-key': ['get', 'priority'] },
+    paint: {
+      'line-color': ['get', 'color'],
+      'line-width': ['case', ['==', ['get', 'priority'], 1], 5, 3.5],
+    },
+  },
+]
+
+export function withRoutes(style: StyleSpecification): StyleSpecification {
+  return {
+    ...style,
+    sources: {
+      ...style.sources,
+      'galitrack-routes': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+    },
+    layers: [...style.layers, ...routeLayers],
+  }
+}
+
+export const regionalMapStyle = withRoutes(regionalStyle)

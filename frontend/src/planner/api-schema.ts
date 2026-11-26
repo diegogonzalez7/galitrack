@@ -38,6 +38,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/routes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate Routes */
+        post: operations["generate_routes_api_routes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -127,11 +144,48 @@ export interface components {
             /** Routes */
             routes: components["schemas"]["DemoRoute"][];
         };
+        /** RoutedCircuit */
+        RoutedCircuit: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Distance Km */
+            distance_km: number;
+            /** Ascent M */
+            ascent_m: number | null;
+            /** Estimated Seconds */
+            estimated_seconds: number;
+            geometry: components["schemas"]["LineString"];
+            /** Elevation Profile */
+            elevation_profile: components["schemas"]["ElevationSample"][];
+            surface: components["schemas"]["SurfaceCoverage"];
+        };
+        /** RoutesResponse */
+        RoutesResponse: {
+            /**
+             * Source
+             * @default openrouteservice
+             * @constant
+             */
+            source: "openrouteservice";
+            /** Routes */
+            routes: components["schemas"]["RoutedCircuit"][];
+        };
         /**
          * Surface
          * @enum {string}
          */
         Surface: "asphalt" | "mixed" | "trail";
+        /** SurfaceCoverage */
+        SurfaceCoverage: {
+            /** Paved Pct */
+            paved_pct: number;
+            /** Unpaved Pct */
+            unpaved_pct: number;
+            /** Unknown Pct */
+            unknown_pct: number;
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -194,6 +248,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PreviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generate_routes_api_routes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoutesResponse"];
                 };
             };
             /** @description Validation Error */

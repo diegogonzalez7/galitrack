@@ -1,20 +1,24 @@
 # Galitrack
 
-Planificador web de circuitos de running en Galicia. Elige un origen en el mapa o introduce sus coordenadas, ajusta distancia, desnivel, superficie y ritmo, y compara dos circuitos de demostración con perfiles de elevación.
+Planificador web de circuitos de running en Galicia. Elige un origen en el mapa o introduce sus coordenadas, ajusta distancia, desnivel, superficie y ritmo, y compara hasta dos circuitos de la red peatonal con perfiles de elevación.
 
-**Los circuitos y los perfiles son simulados.** La cartografía de referencia es real y generalizada. Utiliza la aplicación para explorar el flujo de planificación.
+El mapa detallado usa OpenStreetMap a través de OpenFreeMap, sin clave. Los circuitos requieren una clave gratuita de OpenRouteService.
 
-[Captura de escritorio](docs/screenshots/escritorio.png) · [Captura móvil](docs/screenshots/movil.png)
+[Demostración inicial en escritorio](docs/screenshots/escritorio.png) · [Demostración inicial en móvil](docs/screenshots/movil.png)
 
 ## Ejecutar con Docker Compose
 
-Requiere Docker con Compose v2 y BuildKit.
+Requiere Docker con Compose v2 y BuildKit. Obtén una clave gratuita de OpenRouteService. En la raíz del proyecto, crea o edita `.env` y añade `ORS_API_KEY=` con tu clave. Si ya usas `BACKEND_PORT=8010`, conserva esa línea. [Panel de OpenRouteService](https://openrouteservice.org/dev/#/home)
+
+Si ya tienes un clon en la rama `feature/project-foundation`, actualízalo con `git pull --ff-only origin feature/project-foundation`.
 
 ```sh
 docker compose up --build --wait
 ```
 
 Abre [la aplicación](http://localhost:5173). La [documentación interactiva de la API](http://localhost:8000/api/docs) y el [health check](http://localhost:8000/api/health) se publican en el puerto del backend. El frontend envía las peticiones a `/api` a través del proxy de Vite.
+
+El navegador necesita acceso a `tiles.openfreemap.org` y el backend a `api.openrouteservice.org`. Si la cartografía detallada falla, el mapa muestra el respaldo regional e indica que faltan calles y caminos. Si no hay clave o el proveedor no devuelve un circuito válido, el planificador muestra el motivo y deja el mapa sin rutas.
 
 Si necesitas cambiar los puertos, copia `.env.example` a `.env` y edita sus valores. Usa `docker compose down` para detener los servicios. Compose sirve la compilación del frontend para probar la aplicación en local.
 
@@ -51,7 +55,7 @@ Requiere Python 3.12, [uv](https://docs.astral.sh/uv/) y Node.js 22.12+.
 ```sh
 cd backend
 uv sync --locked
-uv run --locked uvicorn app.main:app --reload
+uv run --locked --env-file ../.env uvicorn app.main:app --reload
 ```
 
 En otra terminal, desde la raíz:
@@ -74,7 +78,7 @@ Si cambias el puerto de Uvicorn (por ejemplo, a 8010 en Codex Cloud), inicia Vit
 
 Playwright inicia ambos servidores en puertos de prueba y ejecuta escenarios en escritorio y móvil. Para comprobar una instancia existente, ejecuta `E2E_BASE_URL=http://127.0.0.1:5173 npm run test:e2e` desde `frontend/`. Si ya dispones de Chromium, puedes usar `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` con su ruta.
 
-Para regenerar las capturas, ejecuta `UPDATE_SCREENSHOTS=1 npm run test:e2e` desde `frontend/`. Los PNG se guardan en `docs/screenshots/`.
+Las pruebas de enrutamiento y de carga del mapa usan respuestas controladas. Para validar el servicio en vivo, elige un origen próximo a una calle en Pontevedra, genera un circuito de 10 km y revisa el trazado. Acerca el mapa para distinguir las calles y caminos de referencia.
 
 ## Diseño técnico
 

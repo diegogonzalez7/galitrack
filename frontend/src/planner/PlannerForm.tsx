@@ -7,6 +7,7 @@ const ELEVATIONS = { flat: 'Llano', rolling: 'Ondulado', hilly: 'Exigente' } as 
 interface Props {
   preferences: Preferences
   onChange: (preferences: Preferences) => void
+  onOriginChange: (origin: Origin) => void
   onSubmit: (preferences: Preferences) => void
   loading: boolean
 }
@@ -79,7 +80,7 @@ function Segmented<T extends string>({ title, Icon, name, options, value, onChan
   )
 }
 
-export function PlannerForm({ preferences, onChange, onSubmit, loading }: Props) {
+export function PlannerForm({ preferences, onChange, onOriginChange, onSubmit, loading }: Props) {
   const [pace, setPace] = useState(formatPace(preferences.pace_seconds_per_km))
   const [paceError, setPaceError] = useState(false)
   const paceInput = useRef<HTMLInputElement>(null)
@@ -103,7 +104,7 @@ export function PlannerForm({ preferences, onChange, onSubmit, loading }: Props)
         <div><h2 id="planner-heading">Configura tu ruta</h2><p>Tu punto de partida y tus preferencias.</p></div>
       </div>
 
-      <OriginEditor origin={preferences.origin} onChange={(origin) => onChange({ ...preferences, origin })} />
+      <OriginEditor origin={preferences.origin} onChange={onOriginChange} />
 
       <div className="field distance-field">
         <div className="range-heading">
@@ -145,7 +146,7 @@ export function PlannerForm({ preferences, onChange, onSubmit, loading }: Props)
       </div>
 
       <button className="generate-button" type="submit" disabled={loading}>
-        {loading ? 'Calculando…' : 'Generar rutas demo'} <ArrowRight size={18} aria-hidden="true" />
+        {loading ? 'Calculando…' : 'Generar rutas'} <ArrowRight size={18} aria-hidden="true" />
       </button>
     </form>
   )

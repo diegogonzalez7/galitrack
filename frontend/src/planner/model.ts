@@ -2,8 +2,8 @@ import type { components } from './api-schema'
 
 export type Origin = components['schemas']['Origin']
 export type Preferences = components['schemas']['PreviewRequest']
-export type Route = components['schemas']['DemoRoute']
-export type Preview = components['schemas']['PreviewResponse']
+export type Route = components['schemas']['RoutedCircuit']
+export type RoutesResponse = components['schemas']['RoutesResponse']
 
 export const GALICIA_BOUNDS = {
   west: -9.55,
