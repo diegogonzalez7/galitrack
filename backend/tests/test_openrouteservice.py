@@ -68,7 +68,7 @@ async def test_generated_circuits_follow_provider_geometry_and_exclude_ferries(c
     def handler(request):
         payload = json.loads(request.content)
         requests.append(payload)
-        assert request.url.path == "/v2/directions/foot-walking/geojson"
+        assert request.url == httpx.URL("https://api.heigit.org/openrouteservice/v2/directions/foot-walking/geojson")
         assert payload["coordinates"] == [ORIGIN]
         assert payload["options"]["avoid_features"] == ["ferries"]
         assert payload["options"]["round_trip"]["length"] == 10000

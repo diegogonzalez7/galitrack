@@ -8,7 +8,7 @@ El punto inicial está junto al acceso sur del Puente de los Tirantes, en Pontev
 
 ## Ejecutar con Docker Compose
 
-Requiere Docker con Compose v2 y BuildKit. Obtén una clave gratuita de OpenRouteService. En la raíz del proyecto, crea o edita `.env` y añade `ORS_API_KEY=` con tu clave. Si ya usas `BACKEND_PORT=8010`, conserva esa línea. [Panel de OpenRouteService](https://openrouteservice.org/dev/#/home)
+Requiere Docker con Compose v2 y BuildKit. Obtén una clave gratuita de OpenRouteService. En la raíz del proyecto, crea o edita `.env` y añade `ORS_API_KEY=` con tu clave. Si ya usas `BACKEND_PORT=8010`, conserva esa línea. [Panel de OpenRouteService](https://account.heigit.org/)
 
 Si ya tienes un clon en la rama `feature/project-foundation`, actualízalo con `git pull --ff-only origin feature/project-foundation`.
 
@@ -18,7 +18,7 @@ docker compose up --build --wait
 
 Abre [la aplicación](http://localhost:5173). La [documentación interactiva de la API](http://localhost:8000/api/docs) y el [health check](http://localhost:8000/api/health) se publican en el puerto del backend. El frontend envía las peticiones a `/api` a través del proxy de Vite.
 
-El navegador necesita acceso a `tiles.openfreemap.org` y el backend a `api.openrouteservice.org`. Si la cartografía detallada falla, el mapa muestra el respaldo regional e indica que faltan calles y caminos. Si no hay clave o el proveedor no devuelve un circuito válido, el planificador muestra el motivo y deja el mapa sin rutas.
+El navegador necesita acceso a `tiles.openfreemap.org` y el backend a `api.heigit.org` (servicio `/openrouteservice`). Si la cartografía detallada falla, el mapa muestra el respaldo regional e indica que faltan calles y caminos. Si no hay clave o el proveedor no devuelve un circuito válido, el planificador muestra el motivo y deja el mapa sin rutas.
 
 Si necesitas cambiar los puertos, copia `.env.example` a `.env` y edita sus valores. Usa `docker compose down` para detener los servicios. Compose sirve la compilación del frontend para probar la aplicación en local.
 

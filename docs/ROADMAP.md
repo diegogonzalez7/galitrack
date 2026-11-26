@@ -6,7 +6,7 @@ Planificador de running con mapa regional, preferencias, contrato FastAPI, dos c
 
 ## 02 · Circuitos reales con OpenRouteService
 
-Galitrack usa `POST /v2/directions/foot-walking/geojson` con un origen, hasta tres semillas y una preferencia de evitar ferris. La aplicación estima el ritmo y clasifica las opciones según distancia, ascenso y superficie disponible. La cartografía vectorial de OpenFreeMap muestra calles y caminos al acercar el mapa.
+Galitrack usa `POST https://api.heigit.org/openrouteservice/v2/directions/foot-walking/geojson` con un origen, hasta tres semillas y una preferencia de evitar ferris. La aplicación estima el ritmo y clasifica las opciones según distancia, ascenso y superficie disponible. La cartografía vectorial de OpenFreeMap muestra calles y caminos al acercar el mapa.
 
 El adaptador se comprobó con respuestas controladas. Queda pendiente validar el proveedor alojado con una clave real y comparar `foot-walking` y `foot-hiking` en recorridos rurales.
 

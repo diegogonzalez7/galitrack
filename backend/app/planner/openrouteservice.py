@@ -14,7 +14,7 @@ from .models import (
 
 logger = getLogger(__name__)
 
-DIRECTIONS_URL = "https://api.openrouteservice.org/v2/directions/foot-walking/geojson"
+DIRECTIONS_URL = "https://api.heigit.org/openrouteservice/v2/directions/foot-walking/geojson"
 SNAP_RADIUS_M = 120
 CLOSURE_TOLERANCE_M = 25
 SEEDS = (42, 1337, 2027)
